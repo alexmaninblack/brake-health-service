@@ -1,0 +1,42 @@
+# SPDX-FileCopyrightText: 2026 maninblack
+# SPDX-License-Identifier: Apache-2.0
+
+.DS_Store
+.env
+.env.*
+!.env.example
+
+# Credentials and identities
+secrets/
+credentials/
+*.key
+*.pem
+*.crt
+*.cer
+*.csr
+*.p12
+*.pfx
+*.pkcs12
+*.token
+*.jks
+
+# Build, runtime, and editor state
+.cache/
+.run/
+.venv/
+__pycache__/
+*.py[cod]
+build/
+dist/
+out/
+artifacts/
+*.log
+
+# Service and VM artifacts
+*.qcow2
+*.img
+*.raw
+*.tar
+*.tar.gz
+*.tar.xz
+*.oci
