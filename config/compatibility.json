@@ -1,0 +1,23 @@
+{
+  "$comment": "SPDX-FileCopyrightText: 2026 maninblack; SPDX-License-Identifier: Apache-2.0",
+  "schemaVersion": 1,
+  "serviceVersion": "0.1.0",
+  "vehicleTelemetryContract": {
+    "id": "io.github.alexmaninblack.vehicle-telemetry-profile",
+    "minimumVersion": "0.1.0",
+    "maximumVersionExclusive": "0.2.0",
+    "qualifiedDraftVersion": "0.1.0",
+    "qualifiedDraftSha256": "95a73655763aebe485c190b92a1fbf923e4291f19482fa448311ad0da4cd1c2f"
+  },
+  "vehicleDataApi": {
+    "name": "kuksa.val.v1",
+    "resourceName": "kuksa",
+    "access": "read-only",
+    "endpointOwnership": "aos-resource"
+  },
+  "target": {
+    "os": "linux",
+    "architecture": "arm64"
+  },
+  "aosLayers": []
+}

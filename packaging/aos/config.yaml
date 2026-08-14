@@ -1,0 +1,40 @@
+# SPDX-FileCopyrightText: 2026 maninblack
+# SPDX-License-Identifier: Apache-2.0
+
+schemaVersion: 2
+
+publisher:
+  author: maninblack
+
+publish:
+  tlsKey: aos-user-sp.p12
+
+items:
+  - identity:
+      type: service
+      codename: vehicle-telemetry-service
+      title: Vehicle Telemetry Service
+      description: Diagnostic scaffold for a KUKSA vehicle telemetry consumer
+    version: 0.1.0
+    sourceFolder: service
+    images:
+      - sourceFolder: arm64
+        archInfo:
+          architecture: arm64
+    configuration:
+      workingDir: /
+      cmd: /usr/bin/vehicle-telemetry-service
+      instances:
+        minInstances: 1
+        priority: 10
+      quotas:
+        cpuLimit: 250
+        ramLimit: 16MiB
+        storageLimit: 8MiB
+        stateLimit: 1MiB
+        tmpLimit: 8MiB
+        noFileLimit: 64
+        pidsLimit: 16
+      resources:
+        - name: kuksa
+    dependencies: []

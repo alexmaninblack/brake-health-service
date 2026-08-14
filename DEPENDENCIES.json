@@ -1,0 +1,24 @@
+{
+  "$comment": "SPDX-FileCopyrightText: 2026 maninblack; SPDX-License-Identifier: Apache-2.0",
+  "schemaVersion": 1,
+  "runtime": [],
+  "build": [],
+  "aosLayers": [],
+  "ci": [
+    {
+      "name": "actions/checkout",
+      "revision": "93cb6efe18208431cddfb8368fd83d5badbf9bfd",
+      "displayVersion": "v5.0.1",
+      "license": "MIT",
+      "source": "https://github.com/actions/checkout"
+    },
+    {
+      "name": "fsfe/reuse-action",
+      "revision": "676e2d560c9a403aa252096d99fcab3e1132b0f5",
+      "displayVersion": "v6",
+      "license": "GPL-3.0-or-later",
+      "source": "https://github.com/fsfe/reuse-action"
+    }
+  ],
+  "distributionNote": "The diagnostic scaffold uses only the base AosVM root filesystem. CI tools are not bundled."
+}

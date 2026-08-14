@@ -1,0 +1,7 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: 2026 maninblack
+# SPDX-License-Identifier: Apache-2.0
+
+set -eu
+
+printf '%s\n' 'Vehicle Telemetry Service scaffold: telemetry behavior is not implemented.'

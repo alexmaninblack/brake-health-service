@@ -8,8 +8,9 @@ vehicle telemetry.
 
 ## Status
 
-This repository is in its governance bootstrap phase. It does not yet contain
-telemetry-consumer behavior or a deployable production service.
+This repository contains an R-3 diagnostic ARM64 Aos service scaffold. It does
+not yet contain telemetry-consumer behavior or claim a deployable production
+service.
 
 ## Ownership Boundary
 
@@ -26,6 +27,30 @@ contract through KUKSA and must remain independent of:
 The repository will own application behavior, tests, Aos service packaging,
 resource limits, version compatibility, health reporting, and rollbackable
 release metadata.
+
+## Current Scaffold
+
+The scaffold declares:
+
+- vehicle telemetry contract compatibility `>=0.1.0, <0.2.0`;
+- KUKSA API `kuksa.val.v1` through the read-only Aos resource `kuksa`;
+- an `arm64` Aos service image and explicit CPU, RAM, storage, state, temporary
+  storage, file, and process limits;
+- no Aos layer dependency and no CARLA, VISS, provider, or VM integration.
+
+Build an unsigned local staging directory with:
+
+```text
+python3 tools/build_scaffold.py --output build/aos-service-scaffold
+```
+
+The output deliberately excludes signing and TLS credentials. Run all local
+gates with:
+
+```text
+python3 -m unittest discover -s tests -p 'test_*.py'
+python3 tools/quality_gate.py
+```
 
 ## Security and Secrets
 

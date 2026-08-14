@@ -1,0 +1,19 @@
+# SPDX-FileCopyrightText: 2026 maninblack
+# SPDX-License-Identifier: Apache-2.0
+
+version = 1
+SPDX-PackageName = "Vehicle Telemetry Service"
+SPDX-PackageSupplier = "Person: maninblack"
+SPDX-PackageDownloadLocation = "https://github.com/alexmaninblack/vehicle-telemetry-service"
+
+[[annotations]]
+path = ["LICENSE", "NOTICE"]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 maninblack"
+SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
+path = ["DEPENDENCIES.json", "config/compatibility.json"]
+precedence = "override"
+SPDX-FileCopyrightText = "2026 maninblack"
+SPDX-License-Identifier = "Apache-2.0"
