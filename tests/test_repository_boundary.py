@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import re
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -18,17 +19,37 @@ FORBIDDEN_PATTERNS = {
 }
 
 
+def runtime_files() -> list[Path]:
+    result = subprocess.run(
+        [
+            "git",
+            "ls-files",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+            "--",
+            *(str(root.relative_to(ROOT)) for root in RUNTIME_ROOTS),
+        ],
+        cwd=ROOT,
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+    return [
+        ROOT / value
+        for value in result.stdout.splitlines()
+        if value and (ROOT / value).is_file()
+    ]
+
+
 class RepositoryBoundaryTests(unittest.TestCase):
     def test_runtime_files_do_not_cross_platform_boundary(self) -> None:
         violations: list[str] = []
-        for root in RUNTIME_ROOTS:
-            for path in root.rglob("*"):
-                if not path.is_file():
-                    continue
-                text = path.read_text(encoding="utf-8")
-                for label, pattern in FORBIDDEN_PATTERNS.items():
-                    if pattern.search(text):
-                        violations.append(f"{path.relative_to(ROOT)}: {label}")
+        for path in runtime_files():
+            text = path.read_text(encoding="utf-8")
+            for label, pattern in FORBIDDEN_PATTERNS.items():
+                if pattern.search(text):
+                    violations.append(f"{path.relative_to(ROOT)}: {label}")
         self.assertEqual([], violations)
 
     def test_service_declares_only_read_only_kuksa_resource(self) -> None:

@@ -12,9 +12,9 @@ publish:
 items:
   - identity:
       type: service
-      codename: vehicle-telemetry-service
-      title: Vehicle Telemetry Service
-      description: Diagnostic scaffold for a KUKSA vehicle telemetry consumer
+      codename: brake-health-service
+      title: Brake Health Service
+      description: Diagnostic scaffold for on-board KUKSA brake-health analysis
     version: 0.1.0
     sourceFolder: service
     images:
@@ -23,7 +23,7 @@ items:
           architecture: arm64
     configuration:
       workingDir: /
-      cmd: /usr/bin/vehicle-telemetry-service
+      cmd: /usr/bin/brake-health-service
       instances:
         minInstances: 1
         priority: 10

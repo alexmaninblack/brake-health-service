@@ -4,4 +4,4 @@
 
 set -eu
 
-printf '%s\n' 'Vehicle Telemetry Service scaffold: telemetry behavior is not implemented.'
+printf '%s\n' 'Brake Health Service scaffold: analysis behavior is not implemented.'

@@ -27,9 +27,9 @@ def build_scaffold(output: Path) -> Path:
         raise ScaffoldError(f"output already exists: {output}")
 
     rootfs = output / "service/arm64"
-    executable_target = rootfs / "usr/bin/vehicle-telemetry-service"
-    config_target = rootfs / "etc/vehicle-telemetry-service/compatibility.json"
-    license_target = rootfs / "usr/share/licenses/vehicle-telemetry-service"
+    executable_target = rootfs / "usr/bin/brake-health-service"
+    config_target = rootfs / "etc/brake-health-service/compatibility.json"
+    license_target = rootfs / "usr/share/licenses/brake-health-service"
 
     output.mkdir(parents=True)
     executable_target.parent.mkdir(parents=True)
@@ -37,7 +37,7 @@ def build_scaffold(output: Path) -> Path:
     license_target.mkdir(parents=True)
 
     shutil.copy2(ROOT / "packaging/aos/config.yaml", output / "config.yaml")
-    shutil.copy2(ROOT / "src/usr/bin/vehicle-telemetry-service", executable_target)
+    shutil.copy2(ROOT / "src/usr/bin/brake-health-service", executable_target)
     executable_target.chmod(0o755)
     shutil.copy2(ROOT / "config/compatibility.json", config_target)
     for name in ("LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.md"):

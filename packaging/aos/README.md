@@ -15,9 +15,9 @@ output directory:
 <output>/
 ├── config.yaml
 └── service/arm64/
-    ├── etc/vehicle-telemetry-service/compatibility.json
-    ├── usr/bin/vehicle-telemetry-service
-    └── usr/share/licenses/vehicle-telemetry-service/...
+    ├── etc/brake-health-service/compatibility.json
+    ├── usr/bin/brake-health-service
+    └── usr/share/licenses/brake-health-service/...
 ```
 
 The staging directory is unsigned. Signing, service registration, upload, and

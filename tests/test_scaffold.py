@@ -25,15 +25,15 @@ class ScaffoldTests(unittest.TestCase):
             output = Path(temp_dir) / "aos-service"
             BUILDER.build_scaffold(output)
 
-            executable = output / "service/arm64/usr/bin/vehicle-telemetry-service"
+            executable = output / "service/arm64/usr/bin/brake-health-service"
             self.assertTrue(executable.is_file())
             self.assertTrue(os.access(executable, os.X_OK))
             self.assertTrue((output / "config.yaml").is_file())
             self.assertTrue(
-                (output / "service/arm64/etc/vehicle-telemetry-service/compatibility.json").is_file()
+                (output / "service/arm64/etc/brake-health-service/compatibility.json").is_file()
             )
             self.assertTrue(
-                (output / "service/arm64/usr/share/licenses/vehicle-telemetry-service/LICENSE").is_file()
+                (output / "service/arm64/usr/share/licenses/brake-health-service/LICENSE").is_file()
             )
             self.assertEqual([], list(output.rglob("*.p12")))
             self.assertEqual([], list(output.rglob("*.pem")))
@@ -42,9 +42,13 @@ class ScaffoldTests(unittest.TestCase):
                 [str(executable)], check=True, text=True, capture_output=True
             )
             self.assertEqual(
-                "Vehicle Telemetry Service scaffold: telemetry behavior is not implemented.\n",
+                "Brake Health Service scaffold: analysis behavior is not implemented.\n",
                 result.stdout,
             )
+
+            config = (output / "config.yaml").read_text(encoding="utf-8")
+            self.assertIn("codename: brake-health-service", config)
+            self.assertIn("title: Brake Health Service", config)
 
     def test_refuses_to_replace_existing_output(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

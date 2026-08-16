@@ -1,15 +1,15 @@
 <!-- SPDX-FileCopyrightText: 2026 maninblack -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-# Vehicle Telemetry Service
+# Brake Health Service
 
 Independently deployable AosEdge-managed service consuming versioned KUKSA/VSS
-vehicle telemetry.
+vehicle telemetry for on-board brake-health analysis.
 
 ## Status
 
 This repository contains an R-3 diagnostic ARM64 Aos service scaffold. It does
-not yet contain telemetry-consumer behavior or claim a deployable production
+not yet contain brake-health analysis behavior or claim a deployable production
 service.
 
 ## Ownership Boundary

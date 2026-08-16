@@ -1,13 +1,15 @@
 <!-- SPDX-FileCopyrightText: 2026 maninblack -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-# Service Architecture Boundary
+# Brake Health Service Architecture Boundary
 
 ## Runtime Contract
 
 The service is an independently deployable Aos application. It consumes a
 compatible version of the vehicle telemetry contract through the
-`kuksa.val.v1` API exposed by the Aos resource named `kuksa`.
+`kuksa.val.v1` API exposed by the Aos resource named `kuksa`. Future behavior
+will derive brake-health observations and recommendations locally in the
+vehicle without making Cloud connectivity part of the decision path.
 
 ```text
 vehicle provider -> KUKSA Databroker -> Aos resource "kuksa" -> this service

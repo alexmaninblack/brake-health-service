@@ -31,7 +31,11 @@ def repository_files() -> list[Path]:
         text=True,
         capture_output=True,
     )
-    return [ROOT / line for line in result.stdout.splitlines() if line]
+    return [
+        ROOT / line
+        for line in result.stdout.splitlines()
+        if line and (ROOT / line).is_file()
+    ]
 
 
 def check_spdx(files: list[Path]) -> list[str]:
@@ -95,15 +99,15 @@ def check_dependencies() -> list[str]:
     return errors
 
 
-def check_product_language() -> list[str]:
+def check_product_language(files: list[Path]) -> list[str]:
     errors: list[str] = []
     cyrillic = re.compile(r"[\u0400-\u04ff]")
-    for root_name in ("src", "config", "packaging"):
-        for path in (ROOT / root_name).rglob("*"):
-            if path.is_file():
-                text = path.read_text(encoding="utf-8")
-                if cyrillic.search(text):
-                    errors.append(f"{path.relative_to(ROOT)}: product content must be English")
+    for path in files:
+        relative = path.relative_to(ROOT)
+        if relative.parts and relative.parts[0] in {"src", "config", "packaging"}:
+            text = path.read_text(encoding="utf-8")
+            if cyrillic.search(text):
+                errors.append(f"{relative}: product content must be English")
     return errors
 
 
@@ -112,7 +116,7 @@ def main() -> int:
     errors = check_spdx(files)
     errors.extend(check_binaries_and_credentials(files))
     errors.extend(check_dependencies())
-    errors.extend(check_product_language())
+    errors.extend(check_product_language(files))
     if errors:
         print("Repository quality gate failed:", file=sys.stderr)
         for error in errors:
