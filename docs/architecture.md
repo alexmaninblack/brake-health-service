@@ -35,7 +35,12 @@ claiming AOS-3 consumer behavior.
 
 - The service repository owns its compatibility range, resource request,
   quotas, command, environment, and package version.
-- The platform owns the KUKSA Databroker, resource mapping, provider, trust
-  policy, and future Authorization Adapter.
+- The platform owns the unmodified Eclipse KUKSA Databroker, Vehicle Data
+  Provider, Aos–KUKSA Credential Broker, OEM access policy, and KUKSA trust
+  configuration as parts of the Vehicle Data Platform Component.
+- The service owns only its declared `kuksa` paths/modes and client-side
+  credential refresh. At runtime it presents its per-instance `AOS_SECRET` to
+  the local broker and receives either a short-lived path-scoped JWT or a
+  fail-closed rejection; no reusable KUKSA token belongs in the SOTA artifact.
 - The integration repository selects exact compatible revisions and proves an
   end-to-end baseline.
