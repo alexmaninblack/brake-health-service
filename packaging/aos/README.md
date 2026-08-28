@@ -32,9 +32,10 @@ The `kuksa` resource mode is intentionally omitted. The current SDK declares
 its default as read-only `r`, while its generated validation enum
 inconsistently lists only `w` and `rw`. Omitting the field preserves the safe
 default and validates; setting `rw` merely to satisfy the faulty enum would
-unnecessarily widen access. Exact KUKSA signal permissions belong in service
-metadata, but the service cannot grant them to itself: the Vehicle Data
-Platform Component's Aos–KUKSA Credential Broker validates the per-instance
-`AOS_SECRET`, compares the complete request with FOTA-managed OEM policy, and
-issues only a short-lived path-scoped JWT or fails closed. No reusable token is
-packaged here.
+unnecessarily widen access. The current packaged scaffold remains unchanged.
+Future adapter packaging will use the separately owned fixed-resource KAC
+boundary: the Service bootstrap presents only its per-instance `AOS_SECRET`;
+resource `kuksa` is implicit, current Aos IAM permissions are authoritative,
+and the Service cannot select paths, modes, subject, audience, lifetime or
+claims. KAC returns only a short-lived path-scoped JWT or a fail-closed
+rejection. No reusable token is packaged here.
