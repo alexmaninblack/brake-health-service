@@ -20,11 +20,31 @@ no simulation endpoint, vehicle-bus adapter, platform configuration, VM
 launcher, provisioning code, or dependency on platform repository source.
 
 Brake Health is one independently deployable product with immutable v1, v2
-and v3 release compositions. The current dependency-free C++17 domain layer is
-the v1 foundation: complete-frame validation, every-third-frame retention,
-PRE/ACTIVE/POST capture, closed canonical chunk/completion serialization and a
-bounded POSIX spool. Injected clocks, source timestamps and UUIDs keep all
-owned decisions deterministic and host-testable.
+and v3 release compositions. Its dependency-free C++17 domain layer now has
+two source-complete foundations:
+
+- v1 owns complete-frame validation, every-third-frame retention,
+  PRE/ACTIVE/POST capture, closed canonical chunk/completion serialization and
+  a bounded POSIX spool; and
+- v2 accepts an adapter-completed fixed-point episode, runs only
+  `brake-condition-demo-v1`, emits the closed assessment and optional
+  band-change event, and owns crash-safe model state plus a bounded derived
+  outbox.
+
+The v2 transaction order is immutable journal, atomic state replacement,
+atomic assessment/event bundle publication and commit marker. Recovery accepts
+only an exact before-state or after-state match. Every other generation,
+digest, model identity or schema combination fails closed as
+`NOT_READY_STATE`. Assessment plus optional event admission is atomic; outbox
+overflow advances the accepted condition state and recent-source ledger once
+but enqueues neither member of the pair. Exact durable ACK identity,
+idempotency-key digest and content digest are required before local deletion.
+
+Injected roots, source timestamps, processing time, Unit metadata and UUID
+inputs keep all owned decisions deterministic and host-testable. UUIDv5/SHA-1
+is used only for deterministic identifiers, never as authentication, signing
+or integrity protection. The accepted v1 spool remains separate and byte-
+unchanged while v2 initializes and evaluates.
 
 The R-3 scaffold requests read-only access to the KUKSA resource and no Aos
 layers. A future implementation must declare every new runtime library as an
@@ -33,12 +53,13 @@ resource mode without a reviewed use case.
 
 ## Current Behavior
 
-The C++17 v1 library implements domain behavior and durable-spool primitives,
-but it is not yet wired into the Aos artifact. The packaged shell executable
-is unchanged: it prints one English diagnostic message and exits. It does not
-open a KUKSA or KAC connection, subscribe to telemetry, persist product data or
-send data outside the vehicle. This keeps domain implementation evidence
-separate from later adapter, packaging, integration and qualification claims.
+The C++17 v1/v2 libraries implement domain and durable-storage primitives, but
+they are not yet wired into the Aos artifact. The packaged shell executable is
+unchanged: it prints one English diagnostic message and exits. It does not open
+a KUKSA or KAC connection, subscribe to telemetry, persist product data or send
+data outside the vehicle. Adapter composition, packaging, ARM64 artifact
+production, live D4-003 calibration and D4-023 quota qualification remain
+separate gates.
 
 ## Configuration Ownership
 

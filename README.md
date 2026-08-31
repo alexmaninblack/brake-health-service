@@ -8,13 +8,18 @@ vehicle telemetry for on-board brake-health analysis.
 
 ## Status
 
-This repository contains an R-3 diagnostic ARM64 Aos service scaffold plus the
-dependency-free C++17 Brake Health v1 domain core. The core implements the
-accepted six-signal validation, deterministic event window, canonical logical
-messages and bounded local spool behind testable interfaces. The packaged
-scaffold executable remains unchanged and still contains no product runtime,
-KUKSA, KAC or backend adapter; this packet therefore does not claim a
-deployable or qualified service.
+This repository contains an R-3 diagnostic ARM64 Aos service scaffold plus
+source-complete, dependency-free C++17 Brake Health v1 and v2 domain cores.
+The v1 core implements the accepted six-signal validation, deterministic event
+window, canonical logical messages and bounded local spool. The v2 core accepts
+an already completed fixed-point 12-signal episode, runs the accepted synthetic
+condition model, emits closed canonical assessment/band-change messages and
+persists crash-safe exactly-once state plus a bounded derived-message outbox.
+
+The packaged scaffold executable remains unchanged and still contains no
+product runtime, KUKSA subscription, KAC exchange or backend adapter. Source
+completion therefore does not claim a composed, deployable, calibrated or
+qualified Brake Health Service v2.
 
 ## Ownership Boundary
 
@@ -34,11 +39,11 @@ packaging, resource limits, version compatibility, health reporting and
 rollbackable release metadata without splitting those versions into separate
 products.
 
-The v1 domain library accepts no simulator truth, control mode, credentials or
-network input. Its future runtime adapter will use the platform-owned fixed-
-resource KAC exchange: the Service supplies only its instance-bound
-`AOS_SECRET`, while resource `kuksa` and all authority remain implicit and
-derived from current Aos IAM state.
+The v1 and v2 domain libraries accept no simulator truth, control mode,
+credentials or network input. A future runtime adapter will use the platform-
+owned fixed-resource KAC exchange: the Service supplies only its instance-
+bound `AOS_SECRET`, while resource `kuksa` and all authority remain implicit
+and derived from current Aos IAM state.
 
 ## Current Scaffold
 
@@ -64,9 +69,13 @@ python3 -m unittest discover -s tests -p 'test_*.py'
 python3 tools/quality_gate.py
 ```
 
-The Python suite configures and builds the C++17 library in a temporary
-out-of-tree directory and runs its deterministic CTest contract suite. It
-downloads no dependency and does not alter the packaged scaffold executable.
+The Python suite configures and builds both C++17 libraries in temporary
+out-of-tree directories and runs their deterministic CTest contract suites.
+The v2 suite covers the authoritative golden assessment/event identities and
+digests, closed input-quality outcomes, journal recovery, atomic pair overflow,
+durable-ACK deletion, ledger rollover and coexistence with retained v1 spool
+bytes. It downloads no dependency and does not alter the packaged scaffold
+executable.
 
 ## Security and Secrets
 
