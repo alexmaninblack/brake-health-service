@@ -7,6 +7,7 @@
 
 #include <filesystem>
 #include <functional>
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <vector>
@@ -17,6 +18,7 @@ enum class WriteStage {
     JournalFiles,
     Journal,
     State,
+    IdentityLedger,
     BundleFiles,
     Bundle,
     CommitMarker,
@@ -79,16 +81,36 @@ public:
     bool ready() const { return ready_; }
 
 private:
+    struct IdentityBinding {
+        std::string source_event_id;
+        std::string assessment_id;
+    };
+
+    struct IdentityLedger {
+        std::uint64_t generation{};
+        std::string state_sha256;
+        std::vector<IdentityBinding> entries;
+    };
+
     void recover();
     void persist_transaction(
         const ModelState& before,
         const ModelState& after,
+        const IdentityLedger& before_identities,
+        const IdentityLedger& after_identities,
         const DerivedMessages& messages,
         bool admit);
     void atomic_write(const std::filesystem::path& target, std::string_view bytes) const;
     void sync_directory(const std::filesystem::path& directory) const;
     void fail_if_requested(WriteStage stage) const;
     std::vector<OutboxEntry> inventory_verified() const;
+    IdentityLedger identity_ledger(const ModelState& state) const;
+    static std::string identity_ledger_json(const IdentityLedger& ledger);
+    static IdentityLedger parse_identity_ledger(std::string_view bytes);
+    static void validate_identity_ledger(
+        const IdentityLedger& ledger,
+        const ModelState& state,
+        std::string_view state_bytes);
 
     std::filesystem::path state_root_;
     std::filesystem::path outbox_root_;

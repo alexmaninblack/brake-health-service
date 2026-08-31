@@ -191,6 +191,20 @@ std::filesystem::path only_journal(const std::filesystem::path& state_root) {
     return values.front();
 }
 
+void overwrite_state_and_rebind_identity_ledger(
+    const std::filesystem::path& state_root,
+    const ModelState& state) {
+    const std::string bytes = state_json(state);
+    std::string ledger = read_file(state_root / "identity-ledger.json");
+    const std::size_t at = ledger.find("\"stateSha256\":\"");
+    CHECK(at != std::string::npos);
+    const std::size_t digest = at + std::string("\"stateSha256\":\"").size();
+    CHECK(digest + 64U <= ledger.size());
+    ledger.replace(digest, 64U, brake_health::v1::sha256_hex(bytes));
+    overwrite(state_root / "state.json", bytes);
+    overwrite(state_root / "identity-ledger.json", ledger);
+}
+
 void test_rounding_and_model_boundaries() {
     CHECK(round_half_up(0U, 2U) == 0U);
     CHECK(round_half_up(1U, 2U) == 1U);
@@ -427,6 +441,7 @@ void test_store_first_start_duplicate_and_ack() {
     CHECK(mode(state_root) == 0700);
     CHECK(mode(outbox_root) == 0700);
     CHECK(mode(state_root / "state.json") == 0600);
+    CHECK(mode(state_root / "identity-ledger.json") == 0600);
 
     const ProcessResult result = store.process(golden_episode(), metadata());
     CHECK(result.status == ProcessStatus::Produced);
@@ -484,6 +499,7 @@ void test_interrupted_transaction_recovery() {
              WriteStage::JournalFiles,
              WriteStage::Journal,
              WriteStage::State,
+             WriteStage::IdentityLedger,
              WriteStage::BundleFiles,
              WriteStage::Bundle,
              WriteStage::CommitMarker,
@@ -658,6 +674,28 @@ void test_manifest_inventory_and_config_fail_closed() {
     CHECK(parse_state_json(read_file(config_conflict.path() / "state" / "state.json")).generation ==
           0U);
     CHECK(std::filesystem::is_empty(config_conflict.path() / "outbox"));
+
+    TemporaryDirectory ledger_conflict("identity-ledger-conflict");
+    StateStore ledger_store(
+        ledger_conflict.path() / "state",
+        ledger_conflict.path() / "outbox",
+        "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+    const ProcessResult ledger_result = ledger_store.process(golden_episode(), metadata());
+    CHECK(ledger_result.status == ProcessStatus::Produced);
+    std::string identity_ledger = read_file(
+        ledger_conflict.path() / "state" / "identity-ledger.json");
+    replace_once(
+        identity_ledger,
+        *ledger_result.assessment_id,
+        ledger_result.assessment_id->substr(0U, 35U) + "f");
+    overwrite(
+        ledger_conflict.path() / "state" / "identity-ledger.json",
+        identity_ledger);
+    StateStore rejected_ledger(
+        ledger_conflict.path() / "state",
+        ledger_conflict.path() / "outbox",
+        "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+    CHECK(!rejected_ledger.ready());
 }
 
 void test_duplicate_identity_assessment_only_and_byte_edges() {
@@ -687,7 +725,9 @@ void test_duplicate_identity_assessment_only_and_byte_edges() {
                   return value.source_event_id == second.source_event_id;
               }) == 1);
 
-    const ProcessResult retained_duplicate = store.process(first, metadata());
+    DeploymentMetadata changed_metadata = metadata();
+    changed_metadata.unit_system_uid = "demo-unit-validation-reprovisioned";
+    const ProcessResult retained_duplicate = store.process(first, changed_metadata);
     CHECK(retained_duplicate.status == ProcessStatus::Duplicate);
     CHECK(retained_duplicate.assessment_id == first_result.assessment_id);
     for (const OutboxEntry& entry : before_ack) {
@@ -696,10 +736,18 @@ void test_duplicate_identity_assessment_only_and_byte_edges() {
                 entry.id, entry.idempotency_key_sha256, entry.content_sha256));
         }
     }
-    const ProcessResult historical_duplicate = store.process(first, metadata());
+    const ProcessResult historical_duplicate = store.process(first, changed_metadata);
     CHECK(historical_duplicate.status == ProcessStatus::Duplicate);
-    CHECK(!historical_duplicate.assessment_id.has_value());
+    CHECK(historical_duplicate.assessment_id == first_result.assessment_id);
     CHECK(store.state().generation == 2U);
+    StateStore restarted(
+        temporary.path() / "state",
+        temporary.path() / "outbox",
+        "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+    CHECK(restarted.ready());
+    const ProcessResult recovered_duplicate = restarted.process(first, changed_metadata);
+    CHECK(recovered_duplicate.status == ProcessStatus::Duplicate);
+    CHECK(recovered_duplicate.assessment_id == first_result.assessment_id);
 }
 
 void test_ledger_rollover_pair_overflow_and_v1_coexistence() {
@@ -723,7 +771,7 @@ void test_ledger_rollover_pair_overflow_and_v1_coexistence() {
     reset_band.wear_index = 54U;
     reset_band.condition_score = 46U;
     reset_band.condition_band = ConditionBand::Monitor;
-    overwrite(state_root / "state.json", state_json(reset_band));
+    overwrite_state_and_rebind_identity_ledger(state_root, reset_band);
     StateStore resumed(
         state_root, outbox_root, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
     CHECK(resumed.ready());

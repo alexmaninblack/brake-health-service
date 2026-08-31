@@ -42,8 +42,11 @@ idempotency-key digest and content digest are required before local deletion.
 The journal is removed only after rereading the committed state and exact
 admitted bundle, or proving that an overflow transaction published no bundle.
 Duplicate results use the verified identity retained in the outbox or state;
-an older ledger entry whose acknowledged identity is no longer retained never
-re-derives an identity from current deployment metadata.
+an internal canonical identity ledger binds every retained source-event entry
+to its committed assessment identity and to the exact model-state generation
+and digest. Durable ACK removes the message bytes but never that binding, so
+every event still in the 64-entry ledger returns its exact historical identity
+without deriving it from current deployment metadata.
 
 Injected roots, source timestamps, processing time, Unit metadata and UUID
 inputs keep all owned decisions deterministic and host-testable. UUIDv5/SHA-1

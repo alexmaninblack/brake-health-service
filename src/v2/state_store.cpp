@@ -6,6 +6,7 @@
 #include "brake_health/v1/sha256.hpp"
 
 #include <algorithm>
+#include <charconv>
 #include <cerrno>
 #include <cstring>
 #include <fcntl.h>
@@ -95,6 +96,49 @@ std::optional<std::string> optional_string_value(
     return string_value(json, key);
 }
 
+std::uint64_t unsigned_value(std::string_view json, std::string_view key) {
+    const std::size_t at = value_at(json, key);
+    const char* first = json.data() + at;
+    const char* last = first;
+    while (last != json.data() + json.size() && *last >= '0' && *last <= '9') ++last;
+    if (first == last || (last - first > 1 && *first == '0')) {
+        throw std::runtime_error("persistent manifest integer is malformed");
+    }
+    std::uint64_t value{};
+    const auto result = std::from_chars(first, last, value);
+    if (result.ec != std::errc{} || result.ptr != last) {
+        throw std::runtime_error("persistent manifest integer is out of range");
+    }
+    return value;
+}
+
+std::vector<std::string> string_array(std::string_view json, std::string_view key) {
+    std::size_t at = value_at(json, key);
+    if (at >= json.size() || json[at++] != '[') {
+        throw std::runtime_error("persistent manifest array is malformed");
+    }
+    std::vector<std::string> values;
+    if (at < json.size() && json[at] == ']') return values;
+    while (at < json.size()) {
+        if (json[at++] != '"') throw std::runtime_error("persistent manifest item malformed");
+        const std::size_t end = json.find('"', at);
+        if (end == std::string_view::npos) {
+            throw std::runtime_error("persistent manifest item unterminated");
+        }
+        values.emplace_back(json.substr(at, end - at));
+        if (values.back().find('\n') != std::string::npos ||
+            values.back().find('\\') != std::string::npos) {
+            throw std::runtime_error("persistent manifest item escape forbidden");
+        }
+        at = end + 1U;
+        if (at < json.size() && json[at] == ']') return values;
+        if (at >= json.size() || json[at++] != ',') {
+            throw std::runtime_error("persistent manifest array delimiter malformed");
+        }
+    }
+    throw std::runtime_error("persistent manifest array unterminated");
+}
+
 struct OptionalEventFields {
     std::optional<std::string> id;
     std::optional<std::string> content_sha256;
@@ -125,6 +169,8 @@ std::string message_sha(const CanonicalMessage& message) {
 std::string manifest_json(
     const ModelState& before,
     const ModelState& after,
+    std::string_view before_identities,
+    std::string_view after_identities,
     const DerivedMessages& messages,
     bool admit) {
     const std::string before_bytes = state_json(before);
@@ -139,12 +185,16 @@ std::string manifest_json(
         ? "\"" + message_sha(*messages.event) + "\"" : "null";
     return std::string("{") +
         "\"afterSha256\":\"" + brake_health::v1::sha256_hex(after_bytes) + "\"" +
+        ",\"afterIdentityLedgerSha256\":\"" +
+        brake_health::v1::sha256_hex(after_identities) + "\"" +
         ",\"assessmentContentSha256\":\"" + messages.assessment.content_sha256 + "\"" +
         ",\"assessmentId\":\"" + messages.assessment.id + "\"" +
         ",\"assessmentIdempotencyKeySha256\":\"" +
         messages.assessment.idempotency_key_sha256 + "\"" +
         ",\"assessmentMessageSha256\":\"" + message_sha(messages.assessment) + "\"" +
         ",\"beforeSha256\":\"" + brake_health::v1::sha256_hex(before_bytes) + "\"" +
+        ",\"beforeIdentityLedgerSha256\":\"" +
+        brake_health::v1::sha256_hex(before_identities) + "\"" +
         ",\"disposition\":\"" + (admit ? "ADMIT" : "OVERFLOW_NOT_ENQUEUED") + "\"" +
         ",\"eventContentSha256\":" + event_content +
         ",\"eventId\":" + event_id +
@@ -210,6 +260,25 @@ bool dot_name(const std::filesystem::path& path) {
     return !name.empty() && name.front() == '.';
 }
 
+bool lowercase_sha256(std::string_view value) {
+    return value.size() == 64U && std::all_of(value.begin(), value.end(), [](char character) {
+        return (character >= '0' && character <= '9') ||
+               (character >= 'a' && character <= 'f');
+    });
+}
+
+bool uuid_version(std::string_view value, char version) {
+    if (value.size() != 36U || value[8] != '-' || value[13] != '-' ||
+        value[18] != '-' || value[23] != '-' || value[14] != version ||
+        std::string_view("89ab").find(value[19]) == std::string_view::npos) return false;
+    for (std::size_t index = 0U; index < value.size(); ++index) {
+        if (index == 8U || index == 13U || index == 18U || index == 23U) continue;
+        if (!((value[index] >= '0' && value[index] <= '9') ||
+              (value[index] >= 'a' && value[index] <= 'f'))) return false;
+    }
+    return true;
+}
+
 }  // namespace
 
 bool derived_outbox_admissible(
@@ -220,6 +289,83 @@ bool derived_outbox_admissible(
     return current_count <= kMaximumMessages && incoming_count <= kMaximumMessages - current_count &&
            current_bytes <= kMaximumOutboxBytes &&
            incoming_bytes <= kMaximumOutboxBytes - current_bytes;
+}
+
+std::string StateStore::identity_ledger_json(const IdentityLedger& ledger) {
+    std::string entries = "[";
+    for (std::size_t index = 0U; index < ledger.entries.size(); ++index) {
+        if (index != 0U) entries.push_back(',');
+        entries += "\"" + ledger.entries[index].source_event_id + "=" +
+                   ledger.entries[index].assessment_id + "\"";
+    }
+    entries.push_back(']');
+    return std::string("{") +
+        "\"entries\":" + entries +
+        ",\"generation\":" + std::to_string(ledger.generation) +
+        ",\"schemaVersion\":1" +
+        ",\"stateSha256\":\"" + ledger.state_sha256 + "\"}";
+}
+
+StateStore::IdentityLedger StateStore::parse_identity_ledger(std::string_view bytes) {
+    if (bytes.size() > kMaximumStateBytes || unsigned_value(bytes, "schemaVersion") != 1U) {
+        throw std::runtime_error("identity ledger schema is invalid");
+    }
+    IdentityLedger ledger;
+    ledger.generation = unsigned_value(bytes, "generation");
+    ledger.state_sha256 = string_value(bytes, "stateSha256");
+    if (!lowercase_sha256(ledger.state_sha256)) {
+        throw std::runtime_error("identity ledger state digest is malformed");
+    }
+    for (const std::string& value : string_array(bytes, "entries")) {
+        const std::size_t separator = value.find('=');
+        if (separator == std::string::npos || value.find('=', separator + 1U) != std::string::npos) {
+            throw std::runtime_error("identity ledger binding is malformed");
+        }
+        IdentityBinding binding{value.substr(0U, separator), value.substr(separator + 1U)};
+        if (!uuid_version(binding.source_event_id, '4') ||
+            !uuid_version(binding.assessment_id, '5')) {
+            throw std::runtime_error("identity ledger UUID is malformed");
+        }
+        ledger.entries.push_back(std::move(binding));
+    }
+    if (ledger.entries.size() > 64U || identity_ledger_json(ledger) != bytes) {
+        throw std::runtime_error("identity ledger is not canonical or exceeds its bound");
+    }
+    return ledger;
+}
+
+void StateStore::validate_identity_ledger(
+    const IdentityLedger& ledger,
+    const ModelState& state,
+    std::string_view state_bytes) {
+    if (ledger.generation != state.generation ||
+        ledger.state_sha256 != brake_health::v1::sha256_hex(state_bytes) ||
+        ledger.entries.size() != state.recent_source_event_ids.size()) {
+        throw std::runtime_error("identity ledger does not bind the current state");
+    }
+    for (std::size_t index = 0U; index < ledger.entries.size(); ++index) {
+        if (ledger.entries[index].source_event_id != state.recent_source_event_ids[index]) {
+            throw std::runtime_error("identity ledger source order conflicts with state");
+        }
+    }
+    std::set<std::string> assessment_ids;
+    for (const IdentityBinding& binding : ledger.entries) {
+        if (!assessment_ids.insert(binding.assessment_id).second) {
+            throw std::runtime_error("identity ledger assessment identity is duplicated");
+        }
+    }
+    if (!ledger.entries.empty() &&
+        (!state.last_assessment_id ||
+         ledger.entries.back().assessment_id != *state.last_assessment_id)) {
+        throw std::runtime_error("identity ledger last assessment conflicts with state");
+    }
+}
+
+StateStore::IdentityLedger StateStore::identity_ledger(const ModelState& state) const {
+    const IdentityLedger ledger = parse_identity_ledger(
+        read_bounded(state_root_ / "identity-ledger.json"));
+    validate_identity_ledger(ledger, state, state_json(state));
+    return ledger;
 }
 
 StateStore::StateStore(
@@ -269,7 +415,24 @@ StateStore::StateStore(
             if (has_transaction) {
                 throw std::runtime_error("state is absent while a journal exists");
             }
-            atomic_write(state_root_ / "state.json", state_json(initial_state(producer_epoch_)));
+            const std::string initial_bytes = state_json(initial_state(producer_epoch_));
+            atomic_write(state_root_ / "state.json", initial_bytes);
+            const IdentityLedger initial_identities{
+                0U, brake_health::v1::sha256_hex(initial_bytes), {}};
+            atomic_write(
+                state_root_ / "identity-ledger.json",
+                identity_ledger_json(initial_identities));
+        }
+        if (!std::filesystem::exists(state_root_ / "identity-ledger.json")) {
+            const std::string existing_state = read_bounded(state_root_ / "state.json");
+            const ModelState parsed = parse_state_json(existing_state);
+            if (parsed.generation != 0U || !parsed.recent_source_event_ids.empty()) {
+                throw std::runtime_error("committed identity ledger is absent");
+            }
+            atomic_write(
+                state_root_ / "identity-ledger.json",
+                identity_ledger_json({
+                    0U, brake_health::v1::sha256_hex(existing_state), {}}));
         }
         recover();
         if (state().producer_epoch != producer_epoch_) {
@@ -351,8 +514,12 @@ void StateStore::fail_if_requested(WriteStage stage) const {
 void StateStore::persist_transaction(
     const ModelState& before,
     const ModelState& after,
+    const IdentityLedger& before_identities,
+    const IdentityLedger& after_identities,
     const DerivedMessages& messages,
     bool admit) {
+    const std::string before_identity_bytes = identity_ledger_json(before_identities);
+    const std::string after_identity_bytes = identity_ledger_json(after_identities);
     const std::filesystem::path transactions = state_root_ / "transactions";
     const std::filesystem::path journal = transactions / messages.assessment.id;
     if (std::filesystem::exists(journal)) {
@@ -364,11 +531,16 @@ void StateStore::persist_transaction(
     make_private_directory(staging);
     atomic_write(staging / "before.json", state_json(before));
     atomic_write(staging / "after.json", state_json(after));
+    atomic_write(staging / "before-identities.json", before_identity_bytes);
+    atomic_write(staging / "after-identities.json", after_identity_bytes);
     atomic_write(staging / "assessment.json", messages.assessment.canonical_json);
     if (messages.event) {
         atomic_write(staging / "event.json", messages.event->canonical_json);
     }
-    atomic_write(staging / "manifest.json", manifest_json(before, after, messages, admit));
+    atomic_write(
+        staging / "manifest.json",
+        manifest_json(
+            before, after, before_identity_bytes, after_identity_bytes, messages, admit));
     sync_directory(staging);
     fail_if_requested(WriteStage::JournalFiles);
     if (::rename(staging.c_str(), journal.c_str()) != 0) {
@@ -379,6 +551,8 @@ void StateStore::persist_transaction(
 
     atomic_write(state_root_ / "state.json", state_json(after));
     fail_if_requested(WriteStage::State);
+    atomic_write(state_root_ / "identity-ledger.json", after_identity_bytes);
+    fail_if_requested(WriteStage::IdentityLedger);
 
     if (admit) {
         const std::filesystem::path bundle = outbox_root_ / messages.assessment.id;
@@ -390,7 +564,10 @@ void StateStore::persist_transaction(
         if (messages.event) {
             atomic_write(bundle_staging / "event.json", messages.event->canonical_json);
         }
-        atomic_write(bundle_staging / "manifest.json", manifest_json(before, after, messages, true));
+        atomic_write(
+            bundle_staging / "manifest.json",
+            manifest_json(
+                before, after, before_identity_bytes, after_identity_bytes, messages, true));
         sync_directory(bundle_staging);
         fail_if_requested(WriteStage::BundleFiles);
         if (::rename(bundle_staging.c_str(), bundle.c_str()) != 0) {
@@ -402,14 +579,18 @@ void StateStore::persist_transaction(
 
     atomic_write(journal / "committed", "COMMITTED\n");
     fail_if_requested(WriteStage::CommitMarker);
-    const std::string expected_manifest = manifest_json(before, after, messages, admit);
+    const std::string expected_manifest = manifest_json(
+        before, after, before_identity_bytes, after_identity_bytes, messages, admit);
     if (read_bounded(journal / "before.json") != state_json(before) ||
         read_bounded(journal / "after.json") != state_json(after) ||
+        read_bounded(journal / "before-identities.json") != before_identity_bytes ||
+        read_bounded(journal / "after-identities.json") != after_identity_bytes ||
         read_bounded(journal / "assessment.json", 16384U) !=
             messages.assessment.canonical_json ||
         read_bounded(journal / "manifest.json") != expected_manifest ||
         read_bounded(journal / "committed") != "COMMITTED\n" ||
-        read_bounded(state_root_ / "state.json") != state_json(after)) {
+        read_bounded(state_root_ / "state.json") != state_json(after) ||
+        read_bounded(state_root_ / "identity-ledger.json") != after_identity_bytes) {
         throw std::runtime_error("transaction changed before journal removal");
     }
     if (messages.event) {
@@ -456,6 +637,7 @@ void StateStore::recover() {
             for (const auto& entry : std::filesystem::directory_iterator(journal)) {
                 const std::string name = entry.path().filename().string();
                 if (name != "before.json" && name != "after.json" &&
+                    name != "before-identities.json" && name != "after-identities.json" &&
                     name != "assessment.json" && name != "event.json" &&
                     name != "manifest.json" && name != "committed" &&
                     name != "QUARANTINED") {
@@ -464,11 +646,25 @@ void StateStore::recover() {
             }
             const std::string before = read_bounded(journal / "before.json");
             const std::string after = read_bounded(journal / "after.json");
-            static_cast<void>(parse_state_json(before));
-            static_cast<void>(parse_state_json(after));
+            const ModelState before_state = parse_state_json(before);
+            const ModelState after_state = parse_state_json(after);
+            const std::string before_identity_bytes =
+                read_bounded(journal / "before-identities.json");
+            const std::string after_identity_bytes =
+                read_bounded(journal / "after-identities.json");
+            const IdentityLedger before_identities =
+                parse_identity_ledger(before_identity_bytes);
+            const IdentityLedger after_identities =
+                parse_identity_ledger(after_identity_bytes);
+            validate_identity_ledger(before_identities, before_state, before);
+            validate_identity_ledger(after_identities, after_state, after);
             const std::string manifest = read_bounded(journal / "manifest.json");
             if (brake_health::v1::sha256_hex(before) != string_value(manifest, "beforeSha256") ||
-                brake_health::v1::sha256_hex(after) != string_value(manifest, "afterSha256")) {
+                brake_health::v1::sha256_hex(after) != string_value(manifest, "afterSha256") ||
+                brake_health::v1::sha256_hex(before_identity_bytes) !=
+                    string_value(manifest, "beforeIdentityLedgerSha256") ||
+                brake_health::v1::sha256_hex(after_identity_bytes) !=
+                    string_value(manifest, "afterIdentityLedgerSha256")) {
                 throw std::runtime_error("journal state digest mismatch");
             }
             const std::string assessment = read_bounded(journal / "assessment.json", 16384U);
@@ -496,10 +692,17 @@ void StateStore::recover() {
                 throw std::runtime_error("unknown transaction disposition");
             }
             const std::string current = read_bounded(state_root_ / "state.json");
+            const std::string current_identities =
+                read_bounded(state_root_ / "identity-ledger.json");
             if (current == before) {
                 atomic_write(state_root_ / "state.json", after);
             } else if (current != after) {
                 throw std::runtime_error("journal generation or state conflict");
+            }
+            if (current_identities == before_identity_bytes) {
+                atomic_write(state_root_ / "identity-ledger.json", after_identity_bytes);
+            } else if (current_identities != after_identity_bytes) {
+                throw std::runtime_error("journal identity-ledger conflict");
             }
 
             if (disposition == "ADMIT") {
@@ -537,10 +740,14 @@ void StateStore::recover() {
             }
             if (read_bounded(journal / "before.json") != before ||
                 read_bounded(journal / "after.json") != after ||
+                read_bounded(journal / "before-identities.json") != before_identity_bytes ||
+                read_bounded(journal / "after-identities.json") != after_identity_bytes ||
                 read_bounded(journal / "assessment.json", 16384U) != assessment ||
                 read_bounded(journal / "manifest.json") != manifest ||
                 read_bounded(journal / "committed") != "COMMITTED\n" ||
-                read_bounded(state_root_ / "state.json") != after) {
+                read_bounded(state_root_ / "state.json") != after ||
+                read_bounded(state_root_ / "identity-ledger.json") !=
+                    after_identity_bytes) {
                 throw std::runtime_error("recovered transaction changed before journal removal");
             }
             const std::filesystem::path expected_bundle =
@@ -653,7 +860,9 @@ std::vector<OutboxEntry> StateStore::inventory() const {
 }
 
 ModelState StateStore::state() const {
-    return parse_state_json(read_bounded(state_root_ / "state.json"));
+    const ModelState current = parse_state_json(read_bounded(state_root_ / "state.json"));
+    static_cast<void>(identity_ledger(current));
+    return current;
 }
 
 ProcessResult StateStore::process(
@@ -665,6 +874,7 @@ ProcessResult StateStore::process(
     }
     try {
         const ModelState before = state();
+        const IdentityLedger before_identities = identity_ledger(before);
         const std::vector<OutboxEntry> current = inventory();
         if (!ready_) {
             return {ProcessStatus::NotReadyState, std::nullopt, std::nullopt, false};
@@ -674,35 +884,23 @@ ProcessResult StateStore::process(
             before.recent_source_event_ids.end(),
             episode.source_event_id);
         if (duplicate != before.recent_source_event_ids.end()) {
+            const std::size_t duplicate_index = static_cast<std::size_t>(
+                std::distance(before.recent_source_event_ids.begin(), duplicate));
+            const std::string& committed_id =
+                before_identities.entries.at(duplicate_index).assessment_id;
             std::set<std::string> stored_assessment_ids;
             for (const OutboxEntry& entry : current) {
                 if (entry.source_event_id == episode.source_event_id) {
                     stored_assessment_ids.insert(entry.assessment_id);
                 }
             }
-            if (stored_assessment_ids.size() > 1U) {
+            if (stored_assessment_ids.size() > 1U ||
+                (!stored_assessment_ids.empty() &&
+                 *stored_assessment_ids.begin() != committed_id)) {
                 ready_ = false;
                 return {ProcessStatus::NotReadyState, std::nullopt, std::nullopt, false};
             }
-            if (!stored_assessment_ids.empty()) {
-                return {
-                    ProcessStatus::Duplicate,
-                    std::nullopt,
-                    *stored_assessment_ids.begin(),
-                    false};
-            }
-            if (before.last_applied_source_event_id == episode.source_event_id) {
-                if (!before.last_assessment_id) {
-                    ready_ = false;
-                    return {ProcessStatus::NotReadyState, std::nullopt, std::nullopt, false};
-                }
-                return {
-                    ProcessStatus::Duplicate,
-                    std::nullopt,
-                    before.last_assessment_id,
-                    false};
-            }
-            return {ProcessStatus::Duplicate, std::nullopt, std::nullopt, false};
+            return {ProcessStatus::Duplicate, std::nullopt, committed_id, false};
         }
 
         Evaluation evaluation = model.evaluate(episode, before);
@@ -726,6 +924,16 @@ ProcessResult StateStore::process(
             after.recent_source_event_ids.erase(after.recent_source_event_ids.begin());
         }
         static_cast<void>(state_json(after));
+        IdentityLedger after_identities = before_identities;
+        after_identities.generation = after.generation;
+        after_identities.entries.push_back(
+            {episode.source_event_id, messages.assessment.id});
+        if (after_identities.entries.size() > 64U) {
+            after_identities.entries.erase(after_identities.entries.begin());
+        }
+        after_identities.state_sha256 =
+            brake_health::v1::sha256_hex(state_json(after));
+        validate_identity_ledger(after_identities, after, state_json(after));
 
         std::size_t current_bytes = 0U;
         for (const OutboxEntry& value : current) {
@@ -734,7 +942,13 @@ ProcessResult StateStore::process(
         const bool admit = derived_outbox_admissible(
             current.size(), current_bytes, messages.count(), messages.encoded_bytes());
         try {
-            persist_transaction(before, after, messages, admit);
+            persist_transaction(
+                before,
+                after,
+                before_identities,
+                after_identities,
+                messages,
+                admit);
         } catch (...) {
             ready_ = false;
             throw;

@@ -74,7 +74,7 @@ out-of-tree directories and runs their deterministic CTest contract suites.
 The v2 suite covers the authoritative golden assessment/event identities and
 digests, closed input-quality outcomes, journal recovery, atomic pair overflow,
 durable-ACK deletion, verified duplicate identity, every persistence write
-stage, ledger rollover and coexistence with retained v1 spool bytes. It
+stage, identity-ledger recovery, ledger rollover and coexistence with retained v1 spool bytes. It
 downloads no dependency and does not alter the packaged scaffold executable.
 
 ## Security and Secrets
