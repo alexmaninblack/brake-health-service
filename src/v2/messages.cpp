@@ -326,7 +326,7 @@ std::string event_content(const Assessment& value) {
            ",\"reasonCode\":\"SYNTHETIC_ACCUMULATED_STRESS_THRESHOLD\"}";
 }
 
-std::string idempotency_digest(
+std::string make_idempotency_digest(
     const std::string& unit_system_uid,
     const std::string& message_type,
     const std::string& id) {
@@ -491,6 +491,19 @@ std::string assessment_id(
         {metadata.unit_system_uid, source_event_id, metadata.model_config_sha256});
 }
 
+std::string message_idempotency_key_sha256(
+    const std::string& unit_system_uid,
+    const std::string& message_type,
+    const std::string& id) {
+    if (!bounded_identifier(unit_system_uid) ||
+        (message_type != "BRAKE_HEALTH_ASSESSMENT" &&
+         message_type != "BRAKE_HEALTH_EVENT") ||
+        !uuid_with_version(id, '5')) {
+        throw std::invalid_argument("idempotency identity does not satisfy the contract");
+    }
+    return make_idempotency_digest(unit_system_uid, message_type, id);
+}
+
 DerivedMessages build_messages(
     const DeploymentMetadata& metadata,
     const CompletedEpisode& episode,
@@ -527,7 +540,8 @@ DerivedMessages build_messages(
         "BRAKE_HEALTH_ASSESSMENT",
         std::move(encoded),
         content_sha,
-        idempotency_digest(metadata.unit_system_uid, "BRAKE_HEALTH_ASSESSMENT", id)};
+        message_idempotency_key_sha256(
+            metadata.unit_system_uid, "BRAKE_HEALTH_ASSESSMENT", id)};
 
     if (assessment.previous_band != assessment.current_band) {
         const std::string event_id = uuid_v5(
@@ -559,7 +573,8 @@ DerivedMessages build_messages(
             "BRAKE_HEALTH_EVENT",
             std::move(event_encoded),
             event_sha,
-            idempotency_digest(metadata.unit_system_uid, "BRAKE_HEALTH_EVENT", event_id)};
+            message_idempotency_key_sha256(
+                metadata.unit_system_uid, "BRAKE_HEALTH_EVENT", event_id)};
     }
     return result;
 }

@@ -165,6 +165,32 @@ void overwrite(const std::filesystem::path& path, const std::string& bytes) {
     CHECK(static_cast<bool>(output));
 }
 
+std::string read_file(const std::filesystem::path& path) {
+    std::ifstream input(path, std::ios::binary);
+    CHECK(static_cast<bool>(input));
+    return std::string(
+        (std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+}
+
+void replace_once(std::string& value, const std::string& from, const std::string& to) {
+    const std::size_t at = value.find(from);
+    CHECK(at != std::string::npos);
+    CHECK(value.find(from, at + from.size()) == std::string::npos);
+    value.replace(at, from.size(), to);
+}
+
+std::filesystem::path only_journal(const std::filesystem::path& state_root) {
+    std::vector<std::filesystem::path> values;
+    for (const auto& entry : std::filesystem::directory_iterator(
+             state_root / "transactions")) {
+        if (entry.is_directory() && entry.path().filename().string().front() != '.') {
+            values.push_back(entry.path());
+        }
+    }
+    CHECK(values.size() == 1U);
+    return values.front();
+}
+
 void test_rounding_and_model_boundaries() {
     CHECK(round_half_up(0U, 2U) == 0U);
     CHECK(round_half_up(1U, 2U) == 1U);
@@ -348,6 +374,18 @@ void test_golden_features_messages_and_uuid() {
     invalid = metadata();
     invalid.assessed_at = "2026-08-22T12:00:07.899Z";
     check_throws<std::invalid_argument>([&] { build_messages(invalid, episode, assessment); });
+
+    DeploymentMetadata maximum_uid = metadata();
+    maximum_uid.unit_system_uid = std::string(128U, 'a');
+    const DerivedMessages maximum_messages = build_messages(maximum_uid, episode, assessment);
+    CHECK(maximum_messages.assessment.canonical_json.size() <= 16384U);
+    CHECK(maximum_messages.event.has_value());
+    CHECK(maximum_messages.event->canonical_json.size() <= 16384U);
+    CHECK(message_idempotency_key_sha256(
+              maximum_uid.unit_system_uid,
+              maximum_messages.assessment.message_type,
+              maximum_messages.assessment.id) ==
+          maximum_messages.assessment.idempotency_key_sha256);
 }
 
 void test_state_schema_and_preserved_v3_fields() {
@@ -368,6 +406,14 @@ void test_state_schema_and_preserved_v3_fields() {
 
     state.recent_source_event_ids = {uuid4_for(1), uuid4_for(1)};
     check_throws<std::invalid_argument>([&] { state_json(state); });
+
+    std::string unknown = encoded;
+    unknown.insert(unknown.size() - 1U, ",\"unknown\":true");
+    check_throws<std::invalid_argument>([&] { parse_state_json(unknown); });
+    std::string duplicate = encoded;
+    duplicate.insert(duplicate.size() - 1U, ",\"generation\":0");
+    check_throws<std::invalid_argument>([&] { parse_state_json(duplicate); });
+    check_throws<std::invalid_argument>([] { parse_state_json("{}"); });
 }
 
 void test_store_first_start_duplicate_and_ack() {
@@ -434,8 +480,14 @@ void test_ack_conflict_quarantine() {
 }
 
 void test_interrupted_transaction_recovery() {
-    for (WriteStage stage : {WriteStage::Journal, WriteStage::State,
-                             WriteStage::Bundle, WriteStage::CommitMarker}) {
+    for (WriteStage stage : {
+             WriteStage::JournalFiles,
+             WriteStage::Journal,
+             WriteStage::State,
+             WriteStage::BundleFiles,
+             WriteStage::Bundle,
+             WriteStage::CommitMarker,
+             WriteStage::JournalRemoval}) {
         TemporaryDirectory temporary("recovery-" + std::to_string(static_cast<int>(stage)));
         bool injected = false;
         StateStore interrupted(
@@ -467,9 +519,10 @@ void test_interrupted_transaction_recovery() {
             temporary.path() / "outbox",
             "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
         CHECK(recovered.ready());
-        CHECK(recovered.state().generation == 1U);
-        CHECK(recovered.state().wear_index == 62U);
-        CHECK(recovered.inventory().size() == 2U);
+        const bool unpublished_journal = stage == WriteStage::JournalFiles;
+        CHECK(recovered.state().generation == (unpublished_journal ? 0U : 1U));
+        CHECK(recovered.state().wear_index == (unpublished_journal ? 54U : 62U));
+        CHECK(recovered.inventory().size() == (unpublished_journal ? 0U : 2U));
         CHECK(std::filesystem::is_empty(temporary.path() / "state" / "transactions"));
     }
 }
@@ -524,6 +577,129 @@ void test_corruption_and_generation_conflict_fail_closed() {
         conflict.path() / "outbox",
         "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
     CHECK(!quarantined.ready());
+}
+
+void test_manifest_inventory_and_config_fail_closed() {
+    const std::vector<std::pair<std::string, std::string>> event_fields_to_remove = {
+        {"eventId", "7f464ca1-c4a6-5438-90d0-2a9c9b9f9862"},
+        {"eventContentSha256",
+         "df168403b59741dc61edb630312a15a658f45bd45a427c32d41f0952fc976001"},
+        {"eventIdempotencyKeySha256",
+         "50aeb7907ec339cbe54328fc075b28521811e14caec41ebe394e5e397b578966"},
+        {"eventMessageSha256",
+         "76e1b72b5eac816eea351c1b17414bf171ac4e7db82616ab40d366e667f8f42a"}};
+    for (std::size_t index = 0U; index < event_fields_to_remove.size(); ++index) {
+        TemporaryDirectory malformed_event("malformed-event-tuple-" + std::to_string(index));
+        bool injected = false;
+        StateStore interrupted(
+            malformed_event.path() / "state",
+            malformed_event.path() / "outbox",
+            "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            [&](WriteStage stage) {
+                if (!injected && stage == WriteStage::Journal) {
+                    injected = true;
+                    return true;
+                }
+                return false;
+            });
+        check_throws<std::runtime_error>([&] {
+            static_cast<void>(interrupted.process(golden_episode(), metadata()));
+        });
+        const std::filesystem::path journal = only_journal(malformed_event.path() / "state");
+        std::string manifest = read_file(journal / "manifest.json");
+        const std::string key = "\"" + event_fields_to_remove[index].first + "\"";
+        replace_once(
+            manifest,
+            key + ":\"" + event_fields_to_remove[index].second + "\"",
+            key + ":null");
+        overwrite(journal / "manifest.json", manifest);
+        StateStore rejected_event(
+            malformed_event.path() / "state",
+            malformed_event.path() / "outbox",
+            "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+        CHECK(!rejected_event.ready());
+        CHECK(std::filesystem::exists(journal / "QUARANTINED"));
+    }
+
+    TemporaryDirectory inventory_corruption("inventory-corruption");
+    const auto state_root = inventory_corruption.path() / "state";
+    const auto outbox_root = inventory_corruption.path() / "outbox";
+    StateStore store(
+        state_root, outbox_root, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+    const ProcessResult produced = store.process(golden_episode(), metadata());
+    CHECK(produced.status == ProcessStatus::Produced);
+    const std::filesystem::path outbox_manifest =
+        outbox_root / *produced.assessment_id / "manifest.json";
+    std::string corrupted = read_file(outbox_manifest);
+    replace_once(
+        corrupted,
+        "\"assessmentContentSha256\":\"" +
+            std::string("b1b5858b114898519fa0f4fe600864727df3c9f28c8228b182661ab6f183b932") +
+            "\"",
+        "\"assessmentContentSha256\":\"" + std::string(64U, '0') + "\"");
+    overwrite(outbox_manifest, corrupted);
+    CHECK(store.inventory().empty());
+    CHECK(!store.ready());
+    CHECK(std::filesystem::exists(
+        outbox_root / *produced.assessment_id / "QUARANTINED"));
+    CHECK(store.process(golden_episode(uuid4_for(2U)), metadata()).status ==
+          ProcessStatus::NotReadyState);
+
+    TemporaryDirectory config_conflict("config-conflict");
+    StateStore config_store(
+        config_conflict.path() / "state",
+        config_conflict.path() / "outbox",
+        "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+    DeploymentMetadata invalid = metadata();
+    invalid.model_config_sha256 = std::string(64U, '0');
+    CHECK(config_store.process(golden_episode(), invalid).status ==
+          ProcessStatus::NotReadyState);
+    CHECK(!config_store.ready());
+    CHECK(parse_state_json(read_file(config_conflict.path() / "state" / "state.json")).generation ==
+          0U);
+    CHECK(std::filesystem::is_empty(config_conflict.path() / "outbox"));
+}
+
+void test_duplicate_identity_assessment_only_and_byte_edges() {
+    CHECK(derived_outbox_admissible(0U, 1048576U, 0U, 0U));
+    CHECK(!derived_outbox_admissible(0U, 1048577U, 0U, 0U));
+    CHECK(derived_outbox_admissible(63U, 1048000U, 1U, 576U));
+    CHECK(!derived_outbox_admissible(63U, 1048000U, 1U, 577U));
+    CHECK(!derived_outbox_admissible(64U, 0U, 1U, 1U));
+
+    TemporaryDirectory temporary("duplicate-identity");
+    StateStore store(
+        temporary.path() / "state",
+        temporary.path() / "outbox",
+        "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+    const CompletedEpisode first = golden_episode(uuid4_for(1U));
+    const CompletedEpisode second = golden_episode(uuid4_for(2U));
+    const ProcessResult first_result = store.process(first, metadata());
+    CHECK(first_result.status == ProcessStatus::Produced);
+    CHECK(first_result.event_created);
+    const ProcessResult second_result = store.process(second, metadata());
+    CHECK(second_result.status == ProcessStatus::Produced);
+    CHECK(!second_result.event_created);
+    const std::vector<OutboxEntry> before_ack = store.inventory();
+    CHECK(before_ack.size() == 3U);
+    CHECK(std::count_if(
+              before_ack.begin(), before_ack.end(), [&](const OutboxEntry& value) {
+                  return value.source_event_id == second.source_event_id;
+              }) == 1);
+
+    const ProcessResult retained_duplicate = store.process(first, metadata());
+    CHECK(retained_duplicate.status == ProcessStatus::Duplicate);
+    CHECK(retained_duplicate.assessment_id == first_result.assessment_id);
+    for (const OutboxEntry& entry : before_ack) {
+        if (entry.source_event_id == first.source_event_id) {
+            CHECK(store.acknowledge(
+                entry.id, entry.idempotency_key_sha256, entry.content_sha256));
+        }
+    }
+    const ProcessResult historical_duplicate = store.process(first, metadata());
+    CHECK(historical_duplicate.status == ProcessStatus::Duplicate);
+    CHECK(!historical_duplicate.assessment_id.has_value());
+    CHECK(store.state().generation == 2U);
 }
 
 void test_ledger_rollover_pair_overflow_and_v1_coexistence() {
@@ -597,6 +773,8 @@ int main() {
     run("ack conflict quarantine", test_ack_conflict_quarantine);
     run("interrupted transaction recovery", test_interrupted_transaction_recovery);
     run("corruption and generation conflict", test_corruption_and_generation_conflict_fail_closed);
+    run("manifest inventory config fail closed", test_manifest_inventory_and_config_fail_closed);
+    run("duplicate identity assessment only byte edges", test_duplicate_identity_assessment_only_and_byte_edges);
     run("ledger rollover pair overflow v1 coexistence", test_ledger_rollover_pair_overflow_and_v1_coexistence);
     return 0;
 }

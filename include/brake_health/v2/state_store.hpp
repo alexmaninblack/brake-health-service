@@ -14,10 +14,13 @@
 namespace brake_health::v2 {
 
 enum class WriteStage {
+    JournalFiles,
     Journal,
     State,
+    BundleFiles,
     Bundle,
     CommitMarker,
+    JournalRemoval,
 };
 
 using FaultInjector = std::function<bool(WriteStage)>;
@@ -43,8 +46,17 @@ struct OutboxEntry {
     std::string canonical_json;
     std::string content_sha256;
     std::string idempotency_key_sha256;
+    std::string message_sha256;
+    std::string source_event_id;
+    std::string assessment_id;
     bool quarantined{};
 };
+
+bool derived_outbox_admissible(
+    std::size_t current_count,
+    std::size_t current_bytes,
+    std::size_t incoming_count,
+    std::size_t incoming_bytes) noexcept;
 
 class StateStore {
 public:
@@ -76,13 +88,14 @@ private:
     void atomic_write(const std::filesystem::path& target, std::string_view bytes) const;
     void sync_directory(const std::filesystem::path& directory) const;
     void fail_if_requested(WriteStage stage) const;
+    std::vector<OutboxEntry> inventory_verified() const;
 
     std::filesystem::path state_root_;
     std::filesystem::path outbox_root_;
     std::string producer_epoch_;
     FaultInjector fault_injector_;
     mutable std::uint64_t temporary_counter_{};
-    bool ready_{true};
+    mutable bool ready_{true};
 };
 
 }  // namespace brake_health::v2

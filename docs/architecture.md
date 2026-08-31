@@ -39,6 +39,11 @@ digest, model identity or schema combination fails closed as
 overflow advances the accepted condition state and recent-source ledger once
 but enqueues neither member of the pair. Exact durable ACK identity,
 idempotency-key digest and content digest are required before local deletion.
+The journal is removed only after rereading the committed state and exact
+admitted bundle, or proving that an overflow transaction published no bundle.
+Duplicate results use the verified identity retained in the outbox or state;
+an older ledger entry whose acknowledged identity is no longer retained never
+re-derives an identity from current deployment metadata.
 
 Injected roots, source timestamps, processing time, Unit metadata and UUID
 inputs keep all owned decisions deterministic and host-testable. UUIDv5/SHA-1

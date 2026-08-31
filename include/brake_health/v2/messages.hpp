@@ -50,6 +50,10 @@ std::string uuid_v5(const std::string& namespace_uuid, const std::vector<std::st
 std::string assessment_id(
     const DeploymentMetadata& metadata,
     const std::string& source_event_id);
+std::string message_idempotency_key_sha256(
+    const std::string& unit_system_uid,
+    const std::string& message_type,
+    const std::string& id);
 DerivedMessages build_messages(
     const DeploymentMetadata& metadata,
     const CompletedEpisode& episode,

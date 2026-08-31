@@ -10,10 +10,12 @@
 #include <cstring>
 #include <fcntl.h>
 #include <fstream>
+#include <map>
 #include <set>
 #include <stdexcept>
 #include <string>
 #include <sys/stat.h>
+#include <tuple>
 #include <unistd.h>
 
 namespace brake_health::v2 {
@@ -93,6 +95,29 @@ std::optional<std::string> optional_string_value(
     return string_value(json, key);
 }
 
+struct OptionalEventFields {
+    std::optional<std::string> id;
+    std::optional<std::string> content_sha256;
+    std::optional<std::string> idempotency_key_sha256;
+    std::optional<std::string> message_sha256;
+};
+
+OptionalEventFields event_fields(std::string_view manifest) {
+    OptionalEventFields fields{
+        optional_string_value(manifest, "eventId"),
+        optional_string_value(manifest, "eventContentSha256"),
+        optional_string_value(manifest, "eventIdempotencyKeySha256"),
+        optional_string_value(manifest, "eventMessageSha256")};
+    const std::size_t count = static_cast<std::size_t>(fields.id.has_value()) +
+                              static_cast<std::size_t>(fields.content_sha256.has_value()) +
+                              static_cast<std::size_t>(fields.idempotency_key_sha256.has_value()) +
+                              static_cast<std::size_t>(fields.message_sha256.has_value());
+    if (count != 0U && count != 4U) {
+        throw std::runtime_error("event manifest identity must be all present or all null");
+    }
+    return fields;
+}
+
 std::string message_sha(const CanonicalMessage& message) {
     return brake_health::v1::sha256_hex(message.canonical_json);
 }
@@ -136,12 +161,66 @@ void verify_message(
     }
 }
 
+OutboxEntry verified_outbox_message(
+    std::string_view prefix,
+    const std::string& manifest,
+    const std::string& encoded,
+    bool quarantined) {
+    const bool assessment = prefix == "assessment";
+    const std::string manifest_id = assessment
+        ? string_value(manifest, "assessmentId") : *event_fields(manifest).id;
+    const std::string message_type = assessment
+        ? "BRAKE_HEALTH_ASSESSMENT" : "BRAKE_HEALTH_EVENT";
+    const std::string content_sha = string_value(
+        manifest, std::string(prefix) + "ContentSha256");
+    const std::string idempotency_sha = string_value(
+        manifest, std::string(prefix) + "IdempotencyKeySha256");
+    const std::string encoded_sha = string_value(
+        manifest, std::string(prefix) + "MessageSha256");
+    const std::string unit_uid = string_value(encoded, "unitSystemUid");
+    const std::string source_event_id = string_value(encoded, "sourceEventId");
+    if (brake_health::v1::sha256_hex(encoded) != encoded_sha ||
+        string_value(encoded, assessment ? "assessmentId" : "eventId") != manifest_id ||
+        string_value(encoded, "messageType") != message_type ||
+        string_value(encoded, "contentSha256") != content_sha ||
+        string_value(encoded, "modelConfigSha256") != kModelConfigSha256 ||
+        message_idempotency_key_sha256(unit_uid, message_type, manifest_id) !=
+            idempotency_sha) {
+        throw std::runtime_error("outbox message identity conflicts with bundle manifest");
+    }
+    const std::string assessment_id_value = assessment
+        ? manifest_id : string_value(encoded, "assessmentId");
+    if (assessment_id_value != string_value(manifest, "assessmentId")) {
+        throw std::runtime_error("event assessment identity conflicts with its bundle");
+    }
+    return {
+        manifest_id,
+        message_type,
+        encoded,
+        content_sha,
+        idempotency_sha,
+        encoded_sha,
+        source_event_id,
+        assessment_id_value,
+        quarantined};
+}
+
 bool dot_name(const std::filesystem::path& path) {
     const std::string name = path.filename().string();
     return !name.empty() && name.front() == '.';
 }
 
 }  // namespace
+
+bool derived_outbox_admissible(
+    std::size_t current_count,
+    std::size_t current_bytes,
+    std::size_t incoming_count,
+    std::size_t incoming_bytes) noexcept {
+    return current_count <= kMaximumMessages && incoming_count <= kMaximumMessages - current_count &&
+           current_bytes <= kMaximumOutboxBytes &&
+           incoming_bytes <= kMaximumOutboxBytes - current_bytes;
+}
 
 StateStore::StateStore(
     std::filesystem::path state_root,
@@ -291,6 +370,7 @@ void StateStore::persist_transaction(
     }
     atomic_write(staging / "manifest.json", manifest_json(before, after, messages, admit));
     sync_directory(staging);
+    fail_if_requested(WriteStage::JournalFiles);
     if (::rename(staging.c_str(), journal.c_str()) != 0) {
         throw posix_error("publish immutable transaction journal");
     }
@@ -312,6 +392,7 @@ void StateStore::persist_transaction(
         }
         atomic_write(bundle_staging / "manifest.json", manifest_json(before, after, messages, true));
         sync_directory(bundle_staging);
+        fail_if_requested(WriteStage::BundleFiles);
         if (::rename(bundle_staging.c_str(), bundle.c_str()) != 0) {
             throw posix_error("publish atomic derived-message bundle");
         }
@@ -321,6 +402,37 @@ void StateStore::persist_transaction(
 
     atomic_write(journal / "committed", "COMMITTED\n");
     fail_if_requested(WriteStage::CommitMarker);
+    const std::string expected_manifest = manifest_json(before, after, messages, admit);
+    if (read_bounded(journal / "before.json") != state_json(before) ||
+        read_bounded(journal / "after.json") != state_json(after) ||
+        read_bounded(journal / "assessment.json", 16384U) !=
+            messages.assessment.canonical_json ||
+        read_bounded(journal / "manifest.json") != expected_manifest ||
+        read_bounded(journal / "committed") != "COMMITTED\n" ||
+        read_bounded(state_root_ / "state.json") != state_json(after)) {
+        throw std::runtime_error("transaction changed before journal removal");
+    }
+    if (messages.event) {
+        if (read_bounded(journal / "event.json", 16384U) != messages.event->canonical_json) {
+            throw std::runtime_error("transaction event changed before journal removal");
+        }
+    } else if (std::filesystem::exists(journal / "event.json")) {
+        throw std::runtime_error("unexpected transaction event before journal removal");
+    }
+    const std::filesystem::path admitted_bundle = outbox_root_ / messages.assessment.id;
+    if (admit) {
+        if (read_bounded(admitted_bundle / "manifest.json") != expected_manifest ||
+            read_bounded(admitted_bundle / "assessment.json", 16384U) !=
+                messages.assessment.canonical_json ||
+            (messages.event &&
+             read_bounded(admitted_bundle / "event.json", 16384U) !=
+                 messages.event->canonical_json)) {
+            throw std::runtime_error("admitted bundle changed before journal removal");
+        }
+    } else if (std::filesystem::exists(admitted_bundle)) {
+        throw std::runtime_error("overflow disposition unexpectedly published a bundle");
+    }
+    fail_if_requested(WriteStage::JournalRemoval);
     std::filesystem::remove_all(journal);
     sync_directory(transactions);
 }
@@ -364,14 +476,17 @@ void StateStore::recover() {
                 string_value(manifest, "assessmentMessageSha256")) {
                 throw std::runtime_error("journal assessment digest mismatch");
             }
-            const std::optional<std::string> event_id = optional_string_value(manifest, "eventId");
+            static_cast<void>(verified_outbox_message(
+                "assessment", manifest, assessment, false));
+            const OptionalEventFields manifest_event = event_fields(manifest);
             std::optional<std::string> event;
-            if (event_id) {
+            if (manifest_event.id) {
                 event = read_bounded(journal / "event.json", 16384U);
                 if (brake_health::v1::sha256_hex(*event) !=
-                    *optional_string_value(manifest, "eventMessageSha256")) {
+                    *manifest_event.message_sha256) {
                     throw std::runtime_error("journal event digest mismatch");
                 }
+                static_cast<void>(verified_outbox_message("event", manifest, *event, false));
             } else if (std::filesystem::exists(journal / "event.json")) {
                 throw std::runtime_error("unexpected journal event");
             }
@@ -412,13 +527,34 @@ void StateStore::recover() {
                 if (event) {
                     verify_message(
                         bundle / "event.json",
-                        *optional_string_value(manifest, "eventMessageSha256"));
+                        *manifest_event.message_sha256);
                 } else if (std::filesystem::exists(bundle / "event.json")) {
                     throw std::runtime_error("unexpected event in recovered assessment-only bundle");
                 }
             }
             if (!std::filesystem::exists(journal / "committed")) {
                 atomic_write(journal / "committed", "COMMITTED\n");
+            }
+            if (read_bounded(journal / "before.json") != before ||
+                read_bounded(journal / "after.json") != after ||
+                read_bounded(journal / "assessment.json", 16384U) != assessment ||
+                read_bounded(journal / "manifest.json") != manifest ||
+                read_bounded(journal / "committed") != "COMMITTED\n" ||
+                read_bounded(state_root_ / "state.json") != after) {
+                throw std::runtime_error("recovered transaction changed before journal removal");
+            }
+            const std::filesystem::path expected_bundle =
+                outbox_root_ / string_value(manifest, "assessmentId");
+            if (disposition == "ADMIT") {
+                if (read_bounded(expected_bundle / "manifest.json") != manifest ||
+                    read_bounded(expected_bundle / "assessment.json", 16384U) != assessment ||
+                    (event && read_bounded(expected_bundle / "event.json", 16384U) != *event)) {
+                    throw std::runtime_error(
+                        "recovered admitted bundle changed before journal removal");
+                }
+            } else if (std::filesystem::exists(expected_bundle)) {
+                throw std::runtime_error(
+                    "recovered overflow disposition unexpectedly has a bundle");
             }
             std::filesystem::remove_all(journal);
             sync_directory(transactions);
@@ -433,63 +569,87 @@ void StateStore::recover() {
     }
 }
 
-std::vector<OutboxEntry> StateStore::inventory() const {
+std::vector<OutboxEntry> StateStore::inventory_verified() const {
     std::vector<OutboxEntry> result;
     std::size_t bytes = 0U;
+    std::map<std::string, std::tuple<std::string, std::string, std::string>> identities;
     for (const auto& entry : std::filesystem::directory_iterator(outbox_root_)) {
         if (dot_name(entry.path())) continue;
-        if (!entry.is_directory()) {
-            throw std::runtime_error("unexpected outbox entry");
-        }
         const std::filesystem::path bundle = entry.path();
-        for (const auto& file : std::filesystem::directory_iterator(bundle)) {
-            const std::string name = file.path().filename().string();
-            if (name != "assessment.json" && name != "event.json" &&
-                name != "manifest.json" && name != "assessment.ack" &&
-                name != "event.ack" && name != "QUARANTINED") {
-                throw std::runtime_error("unknown outbox bundle file");
+        try {
+            if (!entry.is_directory()) {
+                throw std::runtime_error("unexpected outbox entry");
             }
-        }
-        const std::string manifest = read_bounded(bundle / "manifest.json");
-        if (bundle.filename() != string_value(manifest, "assessmentId")) {
-            throw std::runtime_error("outbox bundle directory identity mismatch");
-        }
-        const bool quarantined = std::filesystem::exists(bundle / "QUARANTINED");
-        const auto append = [&](std::string_view prefix, const std::filesystem::path& path) {
-            if (!std::filesystem::exists(path)) return;
-            const std::string encoded = read_bounded(path, 16384U);
-            const std::string expected_message = string_value(
-                manifest, std::string(prefix) + "MessageSha256");
-            if (brake_health::v1::sha256_hex(encoded) != expected_message) {
-                throw std::runtime_error("outbox message conflicts with bundle manifest");
+            for (const auto& file : std::filesystem::directory_iterator(bundle)) {
+                const std::string name = file.path().filename().string();
+                if (name != "assessment.json" && name != "event.json" &&
+                    name != "manifest.json" && name != "assessment.ack" &&
+                    name != "event.ack" && name != "QUARANTINED") {
+                    throw std::runtime_error("unknown outbox bundle file");
+                }
             }
-            OutboxEntry value;
-            value.id = string_value(manifest, std::string(prefix) + "Id");
-            value.message_type = prefix == "assessment"
-                ? "BRAKE_HEALTH_ASSESSMENT" : "BRAKE_HEALTH_EVENT";
-            value.canonical_json = encoded;
-            value.content_sha256 = string_value(
-                manifest, std::string(prefix) + "ContentSha256");
-            value.idempotency_key_sha256 = string_value(
-                manifest, std::string(prefix) + "IdempotencyKeySha256");
-            value.quarantined = quarantined;
-            bytes += encoded.size();
-            result.push_back(std::move(value));
-        };
-        append("assessment", bundle / "assessment.json");
-        if (optional_string_value(manifest, "eventId")) {
-            append("event", bundle / "event.json");
-        } else if (std::filesystem::exists(bundle / "event.json")) {
-            throw std::runtime_error("unexpected event in assessment-only bundle");
+            const std::string manifest = read_bounded(bundle / "manifest.json");
+            if (bundle.filename() != string_value(manifest, "assessmentId")) {
+                throw std::runtime_error("outbox bundle directory identity mismatch");
+            }
+            if (string_value(manifest, "disposition") != "ADMIT") {
+                throw std::runtime_error("outbox bundle does not have an admitted disposition");
+            }
+            const OptionalEventFields manifest_event = event_fields(manifest);
+            const bool quarantined = std::filesystem::exists(bundle / "QUARANTINED");
+            const auto append = [&](std::string_view prefix, const std::filesystem::path& path) {
+                if (!std::filesystem::exists(path)) return;
+                const std::string encoded = read_bounded(path, 16384U);
+                OutboxEntry value = verified_outbox_message(
+                    prefix, manifest, encoded, quarantined);
+                const auto identity = std::make_tuple(
+                    value.content_sha256,
+                    value.idempotency_key_sha256,
+                    value.message_sha256);
+                const auto [found, inserted] = identities.emplace(value.id, identity);
+                if (!inserted) {
+                    if (found->second != identity) {
+                        throw std::runtime_error(
+                            "same outbox identity has incompatible committed digests");
+                    }
+                    throw std::runtime_error("duplicate committed outbox identity");
+                }
+                bytes += encoded.size();
+                result.push_back(std::move(value));
+                if (result.size() > kMaximumMessages || bytes > kMaximumOutboxBytes) {
+                    throw std::runtime_error("persisted outbox exceeds its accepted bounds");
+                }
+            };
+            append("assessment", bundle / "assessment.json");
+            if (manifest_event.id) {
+                append("event", bundle / "event.json");
+            } else if (std::filesystem::exists(bundle / "event.json")) {
+                throw std::runtime_error("unexpected event in assessment-only bundle");
+            }
+        } catch (...) {
+            try {
+                if (std::filesystem::is_directory(bundle)) {
+                    atomic_write(bundle / "QUARANTINED", "NOT_READY_STATE\n");
+                }
+            } catch (...) {
+            }
+            throw;
         }
-    }
-    if (result.size() > kMaximumMessages || bytes > kMaximumOutboxBytes) {
-        throw std::runtime_error("persisted outbox exceeds its accepted bounds");
     }
     std::sort(result.begin(), result.end(), [](const OutboxEntry& left, const OutboxEntry& right) {
         return left.id < right.id;
     });
     return result;
+}
+
+std::vector<OutboxEntry> StateStore::inventory() const {
+    if (!ready_) return {};
+    try {
+        return inventory_verified();
+    } catch (...) {
+        ready_ = false;
+        return {};
+    }
 }
 
 ModelState StateStore::state() const {
@@ -505,18 +665,44 @@ ProcessResult StateStore::process(
     }
     try {
         const ModelState before = state();
+        const std::vector<OutboxEntry> current = inventory();
+        if (!ready_) {
+            return {ProcessStatus::NotReadyState, std::nullopt, std::nullopt, false};
+        }
         const auto duplicate = std::find(
             before.recent_source_event_ids.begin(),
             before.recent_source_event_ids.end(),
             episode.source_event_id);
         if (duplicate != before.recent_source_event_ids.end()) {
-            const std::string id = assessment_id(metadata, episode.source_event_id);
-            if (before.last_applied_source_event_id == episode.source_event_id &&
-                before.last_assessment_id != id) {
+            std::set<std::string> stored_assessment_ids;
+            for (const OutboxEntry& entry : current) {
+                if (entry.source_event_id == episode.source_event_id) {
+                    stored_assessment_ids.insert(entry.assessment_id);
+                }
+            }
+            if (stored_assessment_ids.size() > 1U) {
                 ready_ = false;
                 return {ProcessStatus::NotReadyState, std::nullopt, std::nullopt, false};
             }
-            return {ProcessStatus::Duplicate, std::nullopt, id, false};
+            if (!stored_assessment_ids.empty()) {
+                return {
+                    ProcessStatus::Duplicate,
+                    std::nullopt,
+                    *stored_assessment_ids.begin(),
+                    false};
+            }
+            if (before.last_applied_source_event_id == episode.source_event_id) {
+                if (!before.last_assessment_id) {
+                    ready_ = false;
+                    return {ProcessStatus::NotReadyState, std::nullopt, std::nullopt, false};
+                }
+                return {
+                    ProcessStatus::Duplicate,
+                    std::nullopt,
+                    before.last_assessment_id,
+                    false};
+            }
+            return {ProcessStatus::Duplicate, std::nullopt, std::nullopt, false};
         }
 
         Evaluation evaluation = model.evaluate(episode, before);
@@ -541,13 +727,12 @@ ProcessResult StateStore::process(
         }
         static_cast<void>(state_json(after));
 
-        const std::vector<OutboxEntry> current = inventory();
         std::size_t current_bytes = 0U;
         for (const OutboxEntry& value : current) {
             current_bytes += value.canonical_json.size();
         }
-        const bool admit = current.size() + messages.count() <= kMaximumMessages &&
-                           current_bytes + messages.encoded_bytes() <= kMaximumOutboxBytes;
+        const bool admit = derived_outbox_admissible(
+            current.size(), current_bytes, messages.count(), messages.encoded_bytes());
         try {
             persist_transaction(before, after, messages, admit);
         } catch (...) {
