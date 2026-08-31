@@ -291,16 +291,23 @@ bool derived_outbox_admissible(
            incoming_bytes <= kMaximumOutboxBytes - current_bytes;
 }
 
-std::string StateStore::identity_ledger_json(const IdentityLedger& ledger) {
+template <typename Bindings>
+std::string identity_bindings_json(const Bindings& bindings) {
     std::string entries = "[";
-    for (std::size_t index = 0U; index < ledger.entries.size(); ++index) {
+    for (std::size_t index = 0U; index < bindings.size(); ++index) {
         if (index != 0U) entries.push_back(',');
-        entries += "\"" + ledger.entries[index].source_event_id + "=" +
-                   ledger.entries[index].assessment_id + "\"";
+        entries += "\"" + bindings[index].source_event_id + "=" +
+                   bindings[index].assessment_id + "\"";
     }
     entries.push_back(']');
+    return entries;
+}
+
+std::string StateStore::identity_ledger_json(const IdentityLedger& ledger) {
+    const std::string entries = identity_bindings_json(ledger.entries);
     return std::string("{") +
-        "\"entries\":" + entries +
+        "\"bindingsSha256\":\"" + brake_health::v1::sha256_hex(entries) + "\"" +
+        ",\"entries\":" + entries +
         ",\"generation\":" + std::to_string(ledger.generation) +
         ",\"schemaVersion\":1" +
         ",\"stateSha256\":\"" + ledger.state_sha256 + "\"}";
@@ -313,7 +320,9 @@ StateStore::IdentityLedger StateStore::parse_identity_ledger(std::string_view by
     IdentityLedger ledger;
     ledger.generation = unsigned_value(bytes, "generation");
     ledger.state_sha256 = string_value(bytes, "stateSha256");
-    if (!lowercase_sha256(ledger.state_sha256)) {
+    const std::string bindings_sha256 = string_value(bytes, "bindingsSha256");
+    if (!lowercase_sha256(ledger.state_sha256) ||
+        !lowercase_sha256(bindings_sha256)) {
         throw std::runtime_error("identity ledger state digest is malformed");
     }
     for (const std::string& value : string_array(bytes, "entries")) {
@@ -328,7 +337,10 @@ StateStore::IdentityLedger StateStore::parse_identity_ledger(std::string_view by
         }
         ledger.entries.push_back(std::move(binding));
     }
-    if (ledger.entries.size() > 64U || identity_ledger_json(ledger) != bytes) {
+    if (ledger.entries.size() > 64U ||
+        brake_health::v1::sha256_hex(identity_bindings_json(ledger.entries)) !=
+            bindings_sha256 ||
+        identity_ledger_json(ledger) != bytes) {
         throw std::runtime_error("identity ledger is not canonical or exceeds its bound");
     }
     return ledger;

@@ -44,7 +44,10 @@ admitted bundle, or proving that an overflow transaction published no bundle.
 Duplicate results use the verified identity retained in the outbox or state;
 an internal canonical identity ledger binds every retained source-event entry
 to its committed assessment identity and to the exact model-state generation
-and digest. Durable ACK removes the message bytes but never that binding, so
+and digest. A canonical SHA-256 root covers the complete ordered binding list,
+so changing any historical mapping is a fail-closed corruption even after its
+outbox bytes have been acknowledged. Durable ACK removes the message bytes but
+never that binding, so
 every event still in the 64-entry ledger returns its exact historical identity
 without deriving it from current deployment metadata.
 

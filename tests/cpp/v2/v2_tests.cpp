@@ -748,6 +748,42 @@ void test_duplicate_identity_assessment_only_and_byte_edges() {
     const ProcessResult recovered_duplicate = restarted.process(first, changed_metadata);
     CHECK(recovered_duplicate.status == ProcessStatus::Duplicate);
     CHECK(recovered_duplicate.assessment_id == first_result.assessment_id);
+
+    for (const OutboxEntry& entry : restarted.inventory()) {
+        CHECK(restarted.acknowledge(
+            entry.id, entry.idempotency_key_sha256, entry.content_sha256));
+    }
+    CHECK(restarted.inventory().empty());
+    StateStore fully_acknowledged(
+        temporary.path() / "state",
+        temporary.path() / "outbox",
+        "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+    CHECK(fully_acknowledged.ready());
+    const ProcessResult fully_acknowledged_duplicate =
+        fully_acknowledged.process(first, changed_metadata);
+    CHECK(fully_acknowledged_duplicate.status == ProcessStatus::Duplicate);
+    CHECK(fully_acknowledged_duplicate.assessment_id == first_result.assessment_id);
+
+    std::string tampered_ledger = read_file(
+        temporary.path() / "state" / "identity-ledger.json");
+    const std::string valid_but_wrong_assessment =
+        assessment_id(metadata(), uuid4_for(99U));
+    CHECK(valid_but_wrong_assessment != *first_result.assessment_id);
+    CHECK(valid_but_wrong_assessment != *second_result.assessment_id);
+    replace_once(
+        tampered_ledger,
+        *first_result.assessment_id,
+        valid_but_wrong_assessment);
+    overwrite(
+        temporary.path() / "state" / "identity-ledger.json",
+        tampered_ledger);
+    StateStore tampered_history(
+        temporary.path() / "state",
+        temporary.path() / "outbox",
+        "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+    CHECK(!tampered_history.ready());
+    CHECK(tampered_history.process(first, changed_metadata).status ==
+          ProcessStatus::NotReadyState);
 }
 
 void test_ledger_rollover_pair_overflow_and_v1_coexistence() {
