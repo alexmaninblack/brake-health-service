@@ -60,6 +60,7 @@ public:
     v1::IngestResult ingest(const v1::SourceFrame& frame);
     void disconnect();
     void stop();
+    void update_vdp_metadata(const v1::MessageMetadata& metadata);
     std::optional<PendingMessage> next_message();
     bool accept(const PendingMessage& message, const HttpResponse& response);
     std::vector<v1::SpoolEntry> inventory();

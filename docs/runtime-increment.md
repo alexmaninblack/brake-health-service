@@ -3,7 +3,11 @@
 
 # Studio P5: bounded v1 runtime increment
 
-Status: host-tested source library, **not a deployable SOTA service**.
+Status: host-tested source library, **not a deployable SOTA service**. This is
+the original bounded increment record. The subsequent executable candidate,
+current test scope and unresolved integration gates are recorded in
+[runtime-executable.md](runtime-executable.md); that record supersedes the
+"not implemented yet" composition statements below.
 
 This increment composes the existing v1 domain engine and persistent spool.
 It introduces no new product payload schema, simulator input, credentials in

@@ -70,8 +70,10 @@ capture/delivery coordination, KAC envelope validation, private file handling
 and fixed isolated HTTP transport primitives. Host tests cover these owned
 boundaries; the [runtime increment](runtime-increment.md) records the exact
 scope and unresolved authoritative metadata, public TLS trust and ARM64 gates.
-These libraries have no bootstrap executable or live KUKSA adapter, and
-they are not yet wired into the Aos artifact. The packaged shell executable is
+The subsequent [executable candidate](runtime-executable.md) adds a host-compiled
+credential bootstrap and an actual C++ gRPC adapter source, which still awaits
+product toolchain compilation and TLS fixture qualification. Neither is yet
+wired into the Aos artifact. The packaged shell executable is
 unchanged: it prints one English diagnostic message and exits. It does not open
 a KUKSA or KAC connection, subscribe to telemetry, persist product data or send
 data outside the vehicle. Adapter composition, packaging, ARM64 artifact

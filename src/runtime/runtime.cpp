@@ -149,6 +149,18 @@ void Runtime::disconnect() {
     ingest(missing);
 }
 void Runtime::stop() { std::lock_guard<std::mutex> lock(mutex_); auto window = engine_.abort_service_stop(); if (window) store(*window); }
+void Runtime::update_vdp_metadata(const v1::MessageMetadata& metadata) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (metadata.unit_system_uid != metadata_.unit_system_uid || metadata.unit_role != metadata_.unit_role ||
+        metadata.service_version != metadata_.service_version || metadata.service_artifact_sha256 != metadata_.service_artifact_sha256)
+        throw std::invalid_argument("IMMUTABLE_IDENTITY_CHANGED");
+    if (metadata.vdp_contract_version != metadata_.vdp_contract_version || metadata.vdp_contract_sha256 != metadata_.vdp_contract_sha256) {
+        v1::SourceFrame missing; missing.quality = v1::FrameQuality::Incomplete;
+        const auto result = engine_.ingest(missing);
+        if (result.completed) store(*result.completed);  // Previous provenance, never relabel queued data.
+        metadata_ = metadata;
+    }
+}
 std::vector<v1::SpoolEntry> Runtime::inventory() { std::lock_guard<std::mutex> lock(mutex_); return spool_.inventory(); }
 std::optional<PendingMessage> Runtime::next_message() {
     std::lock_guard<std::mutex> lock(mutex_);

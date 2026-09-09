@@ -1,8 +1,53 @@
 {
   "$comment": "SPDX-FileCopyrightText: 2026 maninblack; SPDX-License-Identifier: Apache-2.0",
   "schemaVersion": 1,
-  "runtime": [],
-  "build": [],
+  "runtime": [
+    {
+      "name": "gRPC C++ (product target only)",
+      "revision": "e5ae3b6b44bf3b64d24bfb4b4f82556239b986db",
+      "displayVersion": "1.60.1",
+      "license": "Apache-2.0",
+      "bundledThirdPartyLicenses": ["BSD-3-Clause", "MPL-2.0"],
+      "source": "https://github.com/grpc/grpc"
+    },
+    {
+      "name": "Protocol Buffers C++ (product target only)",
+      "revision": "a4cbdd3ed0042e8f9b9c30e8b0634096d9532809",
+      "displayVersion": "4.25.8",
+      "license": "BSD-3-Clause",
+      "source": "https://github.com/protocolbuffers/protobuf"
+    },
+    {
+      "name": "Abseil C++ (product target dependency)",
+      "revision": "54fac219c4ef0bc379dfffb0b8098725d77ac81b",
+      "displayVersion": "20240116.3",
+      "license": "Apache-2.0",
+      "source": "https://github.com/abseil/abseil-cpp"
+    }
+  ],
+  "build": [
+    {
+      "name": "KUKSA VAL v1 protobuf schemas",
+      "revision": "30e5c13abc496d0b39aaa6c25acebb088b9902e3",
+      "displayVersion": "0.5.0",
+      "license": "Apache-2.0",
+      "source": "https://github.com/eclipse-kuksa/kuksa-databroker"
+    },
+    {
+      "name": "Protocol Buffers compiler",
+      "revision": "a4cbdd3ed0042e8f9b9c30e8b0634096d9532809",
+      "displayVersion": "4.25.8",
+      "license": "BSD-3-Clause",
+      "source": "https://github.com/protocolbuffers/protobuf"
+    },
+    {
+      "name": "gRPC C++ code generator",
+      "revision": "e5ae3b6b44bf3b64d24bfb4b4f82556239b986db",
+      "displayVersion": "1.60.1",
+      "license": "Apache-2.0",
+      "source": "https://github.com/grpc/grpc"
+    }
+  ],
   "aosLayers": [],
   "ci": [
     {
@@ -20,5 +65,5 @@
       "source": "https://github.com/fsfe/reuse-action"
     }
   ],
-  "distributionNote": "The diagnostic scaffold uses only the base AosVM root filesystem. CI tools are not bundled."
+  "distributionNote": "The diagnostic scaffold is unchanged and is not the product. Product C++ target uses the pinned Factory .31 library versions above, but Linux ARM64 ELF/link closure and transitive public notices remain required build evidence. No third-party source or binary is vendored here. CI tools are not bundled."
 }

@@ -108,7 +108,7 @@ void atomic_private_file(const std::filesystem::path& path, const std::string& b
             if (n <= 0) throw std::runtime_error("TOKEN_WRITE_FAILED");
             offset += static_cast<std::size_t>(n);
         }
-        if (::fsync(file.value) != 0 || ::rename(temporary.c_str(), path.c_str()) != 0) throw std::runtime_error("TOKEN_WRITE_FAILED");
+        if (::fchmod(file.value, 0400) != 0 || ::fsync(file.value) != 0 || ::rename(temporary.c_str(), path.c_str()) != 0) throw std::runtime_error("TOKEN_WRITE_FAILED");
     } catch (...) { ::unlink(temporary.c_str()); throw; }
 }
 std::string random_uuid() {

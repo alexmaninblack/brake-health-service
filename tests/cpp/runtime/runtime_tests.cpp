@@ -170,7 +170,7 @@ void private_file() {
     CHECK(read_file(path, 64) == "host-test-data");
     atomic_private_file(path, "replacement");
     CHECK(read_file(path, 64) == "replacement");
-    struct stat info{}; CHECK(::stat(path.c_str(), &info) == 0 && (info.st_mode & 0777) == 0600);
+    struct stat info{}; CHECK(::stat(path.c_str(), &info) == 0 && (info.st_mode & 0777) == 0400);
     rejects([&] { read_file(path, 2); });
     const auto link = directory.path / "link";
     std::filesystem::create_symlink(path, link);
@@ -178,12 +178,26 @@ void private_file() {
     CHECK(::chmod(directory.path.c_str(), 0755) == 0);
     rejects([&] { atomic_private_file(path, "invalid"); });
 }
+void vdp_change_keeps_provenance() {
+    Directory directory;
+    Runtime runtime(directory.path, metadata(), [] { return event_id; });
+    start(runtime);
+    auto next_metadata = metadata();
+    next_metadata.vdp_contract_sha256 = std::string(64, '3');
+    runtime.update_vdp_metadata(next_metadata);
+    const auto message = runtime.next_message(); CHECK(message);
+    CHECK(parse_json(message->bytes).at("vdpContractSha256").string() == metadata().vdp_contract_sha256);
+    CHECK(read_file(directory.path / event_id / "completion.json", 65536).find("INCOMPLETE_SOURCE_GAP") != std::string::npos);
+    next_metadata.service_artifact_sha256 = std::string(64, '4');
+    rejects([&] { runtime.update_vdp_metadata(next_metadata); });
+}
 }  // namespace
 int main() {
     const std::pair<const char*, std::function<void()>> groups[]{
         {"strict JSON", json_bounds}, {"coherent frames", coherent_input}, {"KAC envelopes", kac_envelope},
         {"HTTP and retry bounds", http_and_retry}, {"durable ACK delivery", durable_delivery},
-        {"restart, source gap and conflict", restart_disconnect_and_conflict}, {"private file replacement", private_file}};
+        {"restart, source gap and conflict", restart_disconnect_and_conflict}, {"private file replacement", private_file},
+        {"VDP change preserves captured provenance", vdp_change_keeps_provenance}};
     int failed = 0;
     for (const auto& group : groups) {
         try { group.second(); std::cout << "PASS: " << group.first << '\n'; }

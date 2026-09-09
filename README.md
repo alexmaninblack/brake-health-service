@@ -19,7 +19,12 @@ persists crash-safe exactly-once state plus a bounded derived-message outbox.
 A bounded v1 runtime library now composes the domain engine and durable spool,
 with coherent-frame admission, KAC envelope validation, bounded POSIX transport
 primitives and exact backend receipt handling. See the
-[runtime increment and deployment gates](docs/runtime-increment.md).
+[runtime increment](docs/runtime-increment.md) and the subsequent
+[executable candidate and deployment gates](docs/runtime-executable.md).
+The credential bootstrap compiles on the host. The real TLS KUKSA Get/Subscribe
+and asynchronous delivery executable is implemented behind an explicit product
+build target requiring pinned C++ dependencies; that target has not yet been
+compiled or exercised in this increment.
 The packaged scaffold executable remains unchanged: it contains none of this
 runtime and no KUKSA subscription or bootstrap process. Source completion does
 not claim a composed, deployable, calibrated or qualified Brake Health Service.
