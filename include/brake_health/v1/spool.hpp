@@ -52,6 +52,8 @@ public:
     AdmissionResult checkpoint_capturing(
         const std::string& event_id,
         const MessageSet& aborted_restart_messages);
+    AdmissionResult complete_capturing(const std::string& event_id, const MessageSet& messages);
+    void quarantine(const std::string& event_id);
     std::vector<SpoolEntry> recover();
     std::vector<SpoolEntry> inventory() const;
     void mark_waiting_ack(const std::string& event_id);

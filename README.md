@@ -16,10 +16,13 @@ an already completed fixed-point 12-signal episode, runs the accepted synthetic
 condition model, emits closed canonical assessment/band-change messages and
 persists crash-safe exactly-once state plus a bounded derived-message outbox.
 
-The packaged scaffold executable remains unchanged and still contains no
-product runtime, KUKSA subscription, KAC exchange or backend adapter. Source
-completion therefore does not claim a composed, deployable, calibrated or
-qualified Brake Health Service v2.
+A bounded v1 runtime library now composes the domain engine and durable spool,
+with coherent-frame admission, KAC envelope validation, bounded POSIX transport
+primitives and exact backend receipt handling. See the
+[runtime increment and deployment gates](docs/runtime-increment.md).
+The packaged scaffold executable remains unchanged: it contains none of this
+runtime and no KUKSA subscription or bootstrap process. Source completion does
+not claim a composed, deployable, calibrated or qualified Brake Health Service.
 
 ## Ownership Boundary
 
@@ -69,8 +72,8 @@ python3 -m unittest discover -s tests -p 'test_*.py'
 python3 tools/quality_gate.py
 ```
 
-The Python suite configures and builds both C++17 libraries in temporary
-out-of-tree directories and runs their deterministic CTest contract suites.
+The Python suite configures and builds the C++17 domain and runtime libraries
+in temporary out-of-tree directories and runs their deterministic CTest suites.
 The v2 suite covers the authoritative golden assessment/event identities and
 digests, closed input-quality outcomes, journal recovery, atomic pair overflow,
 durable-ACK deletion, verified duplicate identity, every persistence write

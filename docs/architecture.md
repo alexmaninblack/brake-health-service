@@ -64,7 +64,13 @@ resource mode without a reviewed use case.
 
 ## Current Behavior
 
-The C++17 v1/v2 libraries implement domain and durable-storage primitives, but
+The C++17 v1/v2 libraries implement domain and durable-storage primitives. A
+bounded v1 composition library now adds coherent-frame assembly, persistent
+capture/delivery coordination, KAC envelope validation, private file handling
+and fixed isolated HTTP transport primitives. Host tests cover these owned
+boundaries; the [runtime increment](runtime-increment.md) records the exact
+scope and unresolved authoritative metadata, public TLS trust and ARM64 gates.
+These libraries have no bootstrap executable or live KUKSA adapter, and
 they are not yet wired into the Aos artifact. The packaged shell executable is
 unchanged: it prints one English diagnostic message and exits. It does not open
 a KUKSA or KAC connection, subscribe to telemetry, persist product data or send

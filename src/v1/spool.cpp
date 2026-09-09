@@ -292,6 +292,25 @@ AdmissionResult EventSpool::checkpoint_capturing(
     return AdmissionResult::Stored;
 }
 
+AdmissionResult EventSpool::complete_capturing(const std::string& event_id, const MessageSet& messages) {
+    const auto result = checkpoint_capturing(event_id, messages);
+    if (result != AdmissionResult::Stored) return result;
+    const auto directory = event_directory(event_id);
+    if (::rename((directory / "restart-completion.json").c_str(), (directory / "completion.json").c_str()) != 0 ||
+        ::rename((directory / "restart-completion.json.sha256").c_str(), (directory / "completion.json.sha256").c_str()) != 0) {
+        throw posix_error("publish captured completion");
+    }
+    sync_directory(directory);
+    write_state(directory, SpoolState::ReadyToSend);
+    return result;
+}
+
+void EventSpool::quarantine(const std::string& event_id) {
+    const auto directory = event_directory(event_id);
+    static_cast<void>(inspect_event(directory));
+    write_state(directory, SpoolState::Quarantined);
+}
+
 bool EventSpool::valid_message_file(const std::filesystem::path& path) const {
     std::error_code error;
     const std::uintmax_t size = std::filesystem::file_size(path, error);

@@ -22,6 +22,20 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
     target_compile_options(brake_health_v1 PRIVATE -Wall -Wextra -Wpedantic -Werror)
 endif()
 
+find_package(Threads REQUIRED)
+add_library(brake_health_runtime
+    src/runtime/json.cpp
+    src/runtime/runtime.cpp
+    src/runtime/posix.cpp
+)
+target_include_directories(brake_health_runtime PUBLIC include)
+target_link_libraries(brake_health_runtime PUBLIC brake_health_v1 Threads::Threads)
+target_compile_features(brake_health_runtime PUBLIC cxx_std_17)
+set_target_properties(brake_health_runtime PROPERTIES CXX_EXTENSIONS OFF CXX_STANDARD_REQUIRED ON)
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+    target_compile_options(brake_health_runtime PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+
 add_library(brake_health_v2
     src/v2/messages.cpp
     src/v2/model.cpp
@@ -63,4 +77,11 @@ if(BUILD_TESTING)
         target_compile_options(brake_health_v2_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
     endif()
     add_test(NAME brake_health_v2_contract COMMAND brake_health_v2_tests)
+
+    add_executable(brake_health_runtime_tests tests/cpp/runtime/runtime_tests.cpp)
+    target_link_libraries(brake_health_runtime_tests PRIVATE brake_health_runtime)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+        target_compile_options(brake_health_runtime_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    endif()
+    add_test(NAME brake_health_runtime_contract COMMAND brake_health_runtime_tests)
 endif()
