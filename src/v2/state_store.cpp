@@ -976,6 +976,24 @@ ProcessResult StateStore::process(
     }
 }
 
+bool StateStore::quarantine_delivery(const std::string& id) {
+    if (!ready_) return false;
+    try {
+        const auto entries = inventory();
+        const auto found = std::find_if(entries.begin(), entries.end(),
+            [&](const OutboxEntry& entry) { return entry.id == id; });
+        if (found == entries.end()) return false;
+        if (found->quarantined) return true;
+        // The verified inventory binds assessment_id to the closed bundle
+        // directory. Never use an unverified transport identifier as a path.
+        atomic_write(outbox_root_ / found->assessment_id / "QUARANTINED", "DELIVERY_CONFLICT\n");
+        return true;
+    } catch (...) {
+        ready_ = false;
+        return false;
+    }
+}
+
 bool StateStore::acknowledge(
     const std::string& id,
     const std::string& idempotency_key_sha256,

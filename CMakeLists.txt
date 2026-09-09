@@ -25,6 +25,7 @@ endif()
 find_package(Threads REQUIRED)
 add_library(brake_health_runtime
     src/runtime/application.cpp
+    src/runtime/derived_delivery.cpp
     src/runtime/json.cpp
     src/runtime/runtime.cpp
     src/runtime/posix.cpp
@@ -57,6 +58,7 @@ add_library(brake_health_v2
 )
 target_include_directories(brake_health_v2 PUBLIC include)
 target_link_libraries(brake_health_v2 PUBLIC brake_health_v1)
+target_link_libraries(brake_health_runtime PUBLIC brake_health_v2)
 target_compile_features(brake_health_v2 PUBLIC cxx_std_17)
 set_target_properties(brake_health_v2 PROPERTIES
     CXX_EXTENSIONS OFF

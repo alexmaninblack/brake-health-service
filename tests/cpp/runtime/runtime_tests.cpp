@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 maninblack
 // SPDX-License-Identifier: Apache-2.0
 #include "brake_health/runtime/runtime.hpp"
+#include "brake_health/runtime/derived_delivery.hpp"
 #include "brake_health/runtime/json.hpp"
 #include "brake_health/v1/sha256.hpp"
 
@@ -15,6 +16,7 @@
 namespace {
 using namespace brake_health::runtime;
 namespace v1 = brake_health::v1;
+namespace v2 = brake_health::v2;
 #define CHECK(x) do { if (!(x)) throw std::runtime_error(std::string(#x) + " at " + std::to_string(__LINE__)); } while (false)
 template<class F> void rejects(F call) {
     bool rejected = false;
@@ -52,8 +54,11 @@ void start(Runtime& runtime) {
 std::string ack(const std::string& bytes, std::string date = "2026-09-09T00:00:00Z", std::string state = "DURABLE_ACCEPTED") {
     const auto message = parse_json(bytes);
     const auto kind = message.at("messageType").string();
-    auto key = '[' + quote_json(message.at("unitSystemUid").string()) + ',' + quote_json(kind) + ',' + quote_json(message.at("eventId").string());
+    const auto* identity = kind == "BRAKE_HEALTH_ASSESSMENT" ? "assessmentId" :
+        kind == "BRAKE_ADVISORY_FACT" ? "requestId" : "eventId";
+    auto key = '[' + quote_json(message.at("unitSystemUid").string()) + ',' + quote_json(kind) + ',' + quote_json(message.at(identity).string());
     if (kind == "WINDOW_CHUNK") key += ',' + std::to_string(message.at("content").at("chunkIndex").integer());
+    if (kind == "BRAKE_ADVISORY_FACT") key += ',' + quote_json(message.at("gatewayState").string());
     key += ']';
     return "{\"schemaVersion\":1,\"contractVersion\":\"1.0.0\",\"receiptId\":\"00000000-0000-4000-8000-000000000002\",\"messageKeySha256\":" + quote_json(v1::sha256_hex(key)) +
         ",\"contentSha256\":" + quote_json(message.at("contentSha256").string()) + ",\"state\":" + quote_json(state) + ",\"receivedAt\":" + quote_json(date) + '}';
@@ -323,6 +328,94 @@ void rejected_capture_is_not_readmitted() {
     CHECK(runtime.inventory().size() == 7);
     CHECK(!std::filesystem::exists(directory.path / "00000000-0000-4000-8000-000000000009"));
 }
+v2::CompletedEpisode derived_episode(std::string id = event_id) {
+    // Explicit host fixture; the application cannot source product records here.
+    v2::CompletedEpisode episode{std::move(id), v2::TerminalState::Complete, 10, {}};
+    for (unsigned i = 0; i < 7; ++i) {
+        v2::Sample sample;
+        sample.sample_index = i;
+        sample.source_timestamp = utc_timestamp(1787400000000LL + i * 100);
+        sample.phase = i == 0 ? v2::Phase::Pre : i == 6 ? v2::Phase::Post : v2::Phase::Active;
+        sample.max_source_age_ms = 20;
+        sample.signals = {42000, -8000, 100000, 0, {400000, 800000, 800000, 800000}, {10000, 40000, 40000, 40000}};
+        episode.samples.push_back(sample);
+    }
+    return episode;
+}
+v2::DeploymentMetadata derived_metadata() {
+    const auto source = metadata();
+    return {source.unit_system_uid, v2::UnitRole::Validation, "2.0.0", source.service_artifact_sha256,
+            "2.0.0", source.vdp_contract_sha256, source.service_artifact_sha256, v2::kModelConfigSha256,
+            utc_timestamp(1787400001000LL)};
+}
+void derived_ack_and_retention() {
+    Directory directory;
+    const std::string epoch = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    std::string retained, state;
+    {
+        v2::StateStore store(directory.path / "state", directory.path / "outbox", epoch);
+        CHECK(store.process(derived_episode(), derived_metadata()).status == v2::ProcessStatus::Produced);
+        CHECK(store.inventory().size() == 2);
+        const auto message = *next_derived_message(store);
+        CHECK(message.message_type == "BRAKE_HEALTH_ASSESSMENT");
+        CHECK(!accept_derived_message(store, message, {503, "", 0}));
+        CHECK(!accept_derived_message(store, message, {0, "", 0}));
+        CHECK(next_derived_message(store)->canonical_json == message.canonical_json);
+        state = v2::state_json(store.state());
+        CHECK(accept_derived_message(store, message, {201, ack(message.canonical_json), 0}));
+        CHECK(v2::state_json(store.state()) == state);
+        retained = next_derived_message(store)->canonical_json;
+        CHECK(store.inventory().size() == 1);
+    }
+    v2::StateStore recovered(directory.path / "state", directory.path / "outbox", epoch);
+    CHECK(recovered.ready() && v2::state_json(recovered.state()) == state);
+    const auto message = *next_derived_message(recovered);
+    CHECK(message.message_type == "BRAKE_HEALTH_EVENT" && message.canonical_json == retained);
+    CHECK(accept_derived_message(recovered, message, {200, ack(message.canonical_json,
+        "2026-09-09T00:00:00Z", "DUPLICATE_ACCEPTED"), 0}));
+    CHECK(recovered.inventory().empty());
+    CHECK(v2::state_json(recovered.state()) == state);
+}
+void derived_conflict_retains_pair() {
+    for (const int status : {200, 409, 422}) {
+        Directory directory;
+        const std::string epoch = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+        v2::StateStore store(directory.path / "state", directory.path / "outbox", epoch);
+        CHECK(store.process(derived_episode(), derived_metadata()).status == v2::ProcessStatus::Produced);
+        const auto message = *next_derived_message(store);
+        const auto before = v2::state_json(store.state());
+        CHECK(!accept_derived_message(store, message, {status, "{}", 0}));
+        CHECK(store.inventory().size() == 2);
+        for (const auto& entry : store.inventory()) CHECK(entry.quarantined);
+        CHECK(!next_derived_message(store));
+        CHECK(v2::state_json(store.state()) == before);
+        CHECK(!accept_derived_message(store, message, {201, ack(message.canonical_json), 0}));
+        v2::StateStore recovered(directory.path / "state", directory.path / "outbox", epoch);
+        CHECK(recovered.ready() && !next_derived_message(recovered));
+        CHECK(recovered.process(derived_episode("00000000-0000-4000-8000-000000000003"),
+            derived_metadata()).status == v2::ProcessStatus::Produced);
+        CHECK(next_derived_message(recovered)); // A delivery conflict does not disable future analytics.
+    }
+}
+void advisory_ack_is_not_application_evidence() {
+    // ACK-key projection fixture, not a complete or publishable advisory fact.
+    const auto message = "{\"messageType\":\"BRAKE_ADVISORY_FACT\",\"unitSystemUid\":\"host-test-unit\","
+        "\"requestId\":\"16223957-cdc3-57d4-af7d-74f78016ca0e\",\"gatewayState\":\"APPLIED\",\"contentSha256\":" +
+        quote_json(std::string(64, '1')) + '}';
+    const auto receipt = ack(message);
+    CHECK(matches_ack(message, {201, receipt, 0}));
+    auto different_status = message;
+    different_status.replace(different_status.find("APPLIED"), 7, "EXPIRED");
+    CHECK(!matches_ack(different_status, {201, receipt, 0}));
+    CHECK(matches_ack(different_status, {201, ack(different_status), 0}));
+    auto different_unit = message;
+    different_unit.replace(different_unit.find("host-test-unit"), 14, "another-unit");
+    CHECK(!matches_ack(different_unit, {201, receipt, 0}));
+    auto different_content = message;
+    different_content.replace(different_content.find(std::string(64, '1')), 64, std::string(64, '2'));
+    CHECK(!matches_ack(different_content, {201, receipt, 0}));
+    CHECK(!matches_ack(message, {202, receipt, 0}));
+}
 }  // namespace
 int main() {
     const std::pair<const char*, std::function<void()>> groups[]{
@@ -334,6 +427,9 @@ int main() {
         {"growing restart ACK and conflict retention", growing_restart_and_quarantine},
         {"interrupted checkpoint is quarantined", growing_interrupted_checkpoint},
         {"rejected capture is never partly readmitted", rejected_capture_is_not_readmitted},
+        {"derived exact ACK, retry and restart retention", derived_ack_and_retention},
+        {"derived conflict retains atomic pair", derived_conflict_retains_pair},
+        {"advisory ACK binds exact Gateway state", advisory_ack_is_not_application_evidence},
         {"growing partition bounds", growing_partition_bounds}};
     int failed = 0;
     for (const auto& group : groups) {

@@ -836,6 +836,35 @@ void test_ledger_rollover_pair_overflow_and_v1_coexistence() {
         }()) == v1_before);
 }
 
+void test_post_retrigger_preserves_one_episode() {
+    auto episode = golden_episode();
+    episode.samples.resize(75); // Keep PRE=30, ACTIVE=25, total POST=20.
+    for (std::size_t i = 40; i < 45; ++i) episode.samples[i].phase = Phase::Post;
+    const auto evaluation = evaluate_golden(episode);
+    CHECK(!evaluation.skip_reason && evaluation.assessment);
+    CHECK(evaluation.assessment->features.active_sample_count == 25);
+    CHECK(evaluation.assessment->features.active_duration_milliseconds == 2500);
+    CHECK(evaluation.assessment->features.episode_load_bps == 6550);
+    CHECK(evaluation.assessment->wear_increment == 8);
+    CHECK(evaluation.assessment->source_window_end_timestamp == timestamp(7400));
+    TemporaryDirectory temporary("post-retrigger");
+    StateStore store(temporary.path() / "state", temporary.path() / "outbox",
+        "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+    const auto result = store.process(episode, metadata());
+    CHECK(result.status == ProcessStatus::Produced && result.event_created);
+    CHECK(store.state().generation == 1 && store.state().wear_index == 62);
+    CHECK(store.process(episode, metadata()).status == ProcessStatus::Duplicate);
+    CHECK(store.state().generation == 1 && store.state().wear_index == 62);
+    CHECK(store.inventory().size() == 2);
+
+    auto invalid = episode;
+    invalid.samples[50].phase = Phase::Pre;
+    CHECK(evaluate_golden(invalid).skip_reason == SkipReason::MissingRequiredSignal);
+    invalid = episode;
+    invalid.samples[0].phase = Phase::Post;
+    CHECK(evaluate_golden(invalid).skip_reason == SkipReason::MissingRequiredSignal);
+}
+
 void run(const char* name, const std::function<void()>& test) {
     try {
         test();
@@ -860,5 +889,6 @@ int main() {
     run("manifest inventory config fail closed", test_manifest_inventory_and_config_fail_closed);
     run("duplicate identity assessment only byte edges", test_duplicate_identity_assessment_only_and_byte_edges);
     run("ledger rollover pair overflow v1 coexistence", test_ledger_rollover_pair_overflow_and_v1_coexistence);
+    run("POST retrigger preserves one episode", test_post_retrigger_preserves_one_episode);
     return 0;
 }

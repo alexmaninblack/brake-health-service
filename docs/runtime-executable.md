@@ -176,7 +176,7 @@ distribution gRPC libraries merely because their package names match.
 
 ## Verification scope and remaining product work
 
-Four host CTest targets pass: existing v1/v2 domains, thirteen runtime protocol/
+Four host CTest targets pass: existing v1/v2 domains, sixteen runtime protocol/
 durability groups, and five application input/token/clock/provenance groups.
 `brake-health-bootstrap` compiles with warnings-as-errors. Tests use isolated
 fixtures only; no runtime fixture records are installed or sent to a live
@@ -193,4 +193,5 @@ tested; real KUKSA-to-backend/dashboards verification is still outstanding.
 Capacity/quarantine readiness and aggregated operational-fact reporting need
 separate executable qualification; local retention tests do not establish
 those operator-visible states. v2/v3 runtime and advisory composition are
-separate subsequent work.
+separate subsequent work; the [v2/v3 wiring audit](runtime-v2-v3-audit.md)
+records exact missing runtime calls and the release/profile schema conflict.

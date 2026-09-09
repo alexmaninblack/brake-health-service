@@ -77,6 +77,7 @@ public:
         const std::string& id,
         const std::string& idempotency_key_sha256,
         const std::string& content_sha256);
+    bool quarantine_delivery(const std::string& id);
     ModelState state() const;
     bool ready() const { return ready_; }
 

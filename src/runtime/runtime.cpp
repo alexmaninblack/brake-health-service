@@ -164,10 +164,23 @@ bool matches_ack(const std::string& message, const HttpResponse& response) {
     try {
         const auto msg = parse_json(message), ack = parse_json(response.body, 8192);
         const auto kind = msg.at("messageType").string();
-        if (kind != "WINDOW_CHUNK" && kind != "WINDOW_COMPLETION") return false;
-        auto key = '[' + quote_json(msg.at("unitSystemUid").string()) + ',' + quote_json(kind) + ',' + quote_json(msg.at("eventId").string());
-        if (kind == "WINDOW_CHUNK") key += ',' + std::to_string(msg.at("content").at("chunkIndex").integer());
+        const auto* identity = kind == "BRAKE_HEALTH_ASSESSMENT" ? "assessmentId" :
+            kind == "BRAKE_ADVISORY_FACT" ? "requestId" : "eventId";
+        if (kind != "WINDOW_CHUNK" && kind != "WINDOW_COMPLETION" && kind != "BRAKE_HEALTH_ASSESSMENT" &&
+            kind != "BRAKE_HEALTH_EVENT" && kind != "BRAKE_ADVISORY_FACT") return false;
+        auto key = '[' + quote_json(msg.at("unitSystemUid").string()) + ',' + quote_json(kind) + ',' + quote_json(msg.at(identity).string());
+        if (kind == "WINDOW_CHUNK") {
+            const auto index = msg.at("content").at("chunkIndex").integer();
+            if (index < 0 || index > 14) return false;
+            key += ',' + std::to_string(index);
+        } else if (kind == "BRAKE_ADVISORY_FACT") {
+            const auto state = msg.at("gatewayState").string();
+            if (state != "RECEIVED" && state != "APPLIED" && state != "CLEARED" && state != "REJECTED" &&
+                state != "EXPIRED" && state != "FAILED") return false;
+            key += ',' + quote_json(state);
+        }
         key += ']';
+        if (!is_sha256(msg.at("contentSha256").string())) return false;
         return ack.object().size() == 7 && ack.at("schemaVersion").integer() == 1 && ack.at("contractVersion").string() == "1.0.0" &&
             is_uuid(ack.at("receiptId").string()) && date_time(ack.at("receivedAt").string()) &&
             (ack.at("state").string() == "DURABLE_ACCEPTED" || ack.at("state").string() == "DUPLICATE_ACCEPTED") &&

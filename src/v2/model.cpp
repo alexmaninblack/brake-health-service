@@ -173,13 +173,16 @@ Evaluation SyntheticModel::evaluate(
     bool has_active = false;
     bool has_post = false;
     std::size_t active_phase_count = 0U;
-    int previous_phase = -1;
+    bool left_pre = false;
     for (const Sample& sample : episode.samples) {
         const int current_phase = phase_rank(sample.phase);
-        if (current_phase < previous_phase) {
+        // D4-016.1 permits POST -> ACTIVE retrigger under the same event ID.
+        // PRE remains a prefix and POST cannot precede the first ACTIVE.
+        if (current_phase < 0 || (sample.phase == Phase::Pre && left_pre) ||
+            (sample.phase == Phase::Post && !has_active)) {
             return skipped(current, SkipReason::MissingRequiredSignal);
         }
-        previous_phase = current_phase;
+        left_pre = left_pre || sample.phase != Phase::Pre;
         has_pre = has_pre || sample.phase == Phase::Pre;
         has_active = has_active || sample.phase == Phase::Active;
         has_post = has_post || sample.phase == Phase::Post;
