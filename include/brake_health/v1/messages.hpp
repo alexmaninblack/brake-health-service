@@ -37,6 +37,9 @@ struct MessageSet {
 };
 
 MessageSet build_messages(const MessageMetadata& metadata, const EventWindow& window);
+// Seal PRE separately so its final short chunk is immutable at trigger time.
+// Existing completed-message/golden-vector serialization remains available above.
+MessageSet build_growing_messages(const MessageMetadata& metadata, const EventWindow& window);
 std::string canonicalize_chunk_content(
     std::size_t chunk_index,
     std::size_t first_sample_index,

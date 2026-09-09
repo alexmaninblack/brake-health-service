@@ -65,11 +65,12 @@ public:
     bool accept(const PendingMessage& message, const HttpResponse& response);
     std::vector<v1::SpoolEntry> inventory();
 private:
-    void store(const v1::EventWindow& window);
+    void store(const v1::EventWindow& window, bool capturing = false);
     std::filesystem::path root_;
     v1::MessageMetadata metadata_;
     v1::WindowEngine engine_;
     v1::EventSpool spool_;
+    std::optional<std::string> dropped_event_id_;
     std::mutex mutex_;
 };
 }  // namespace brake_health::runtime

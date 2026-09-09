@@ -279,6 +279,15 @@ AdmissionResult EventSpool::checkpoint_capturing(
             throw std::invalid_argument("chunk filename is outside the closed layout");
         }
         enforce_message_size(chunk.canonical_json);
+        // Captured prefixes are immutable. Do not repeatedly replace/fsync
+        // already durable bytes while the trailing ACTIVE/POST chunk grows.
+        if (std::filesystem::exists(directory / chunk.filename)) {
+            std::ifstream previous(directory / chunk.filename, std::ios::binary);
+            const std::string bytes{std::istreambuf_iterator<char>(previous), std::istreambuf_iterator<char>()};
+            if (previous.is_open() && !previous.bad() && bytes == chunk.canonical_json) continue;
+            if (std::filesystem::exists(directory / (chunk.filename + ".ack")))
+                throw std::logic_error("acknowledged chunk is immutable");
+        }
         atomic_write(directory / chunk.filename, chunk.canonical_json);
         atomic_write(
             directory / (chunk.filename + ".sha256"), sha256_hex(chunk.canonical_json));

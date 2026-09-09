@@ -14,6 +14,58 @@
 
 namespace brake_health::runtime {
 namespace {
+std::string message_filename(std::optional<std::size_t> chunk_index) {
+    if (!chunk_index) return "completion.json";
+    if (*chunk_index > 14U) throw std::invalid_argument("CHUNK_INDEX_INVALID");
+    std::ostringstream name;
+    name << "chunk-" << std::setfill('0') << std::setw(3) << *chunk_index << ".json";
+    return name.str();
+}
+std::string durable_message(const std::filesystem::path& path) {
+    auto bytes = read_file(path, 65536);
+    if (v1::sha256_hex(bytes) != read_file(path.string() + ".sha256", 64))
+        throw std::runtime_error("SPOOL_INTEGRITY_INVALID");
+    return bytes;
+}
+bool sealed_capture_chunk(const std::string& bytes) {
+    const auto json = parse_json(bytes);
+    const auto& content = json.at("content");
+    const auto count = content.at("sampleCount").integer();
+    const auto& samples = std::get<Json::Array>(content.at("samples").value);
+    if (count < 1 || count > 10 || static_cast<std::size_t>(count) != samples.size())
+        throw std::runtime_error("SPOOL_CHUNK_INVALID");
+    // PRE is frozen at trigger. Only the trailing partial ACTIVE/POST chunk
+    // can still grow; never expose its current idempotency key to transport.
+    return count == 10 || std::all_of(samples.begin(), samples.end(),
+        [](const Json& sample) { return sample.at("phase").string() == "PRE"; });
+}
+void verify_completed_set(const std::filesystem::path& directory, const v1::SpoolEntry& entry) {
+    const auto completion = parse_json(durable_message(directory / "completion.json"));
+    const auto& content = completion.at("content");
+    const auto& expected_hashes = std::get<Json::Array>(content.at("chunkContentSha256").value);
+    if (content.at("totalChunks").integer() != static_cast<std::int64_t>(entry.chunk_count) ||
+        expected_hashes.size() != entry.chunk_count) throw std::runtime_error("SPOOL_SET_INVALID");
+    std::int64_t expected_sample = 0;
+    std::vector<std::string> hashes;
+    for (std::size_t i = 0; i < entry.chunk_count; ++i) {
+        const auto chunk = parse_json(durable_message(directory / message_filename(i)));
+        const auto& values = chunk.at("content");
+        if (chunk.at("eventId").string() != entry.event_id ||
+            values.at("chunkIndex").integer() != static_cast<std::int64_t>(i) ||
+            values.at("firstSampleIndex").integer() != expected_sample ||
+            expected_hashes[i].string() != chunk.at("contentSha256").string())
+            throw std::runtime_error("SPOOL_SET_INVALID");
+        for (const auto* key : {"eventId", "unitSystemUid", "unitRole", "serviceVersion",
+                "serviceArtifactSha256", "vdpContractVersion", "vdpContractSha256"})
+            if (chunk.at(key).string() != completion.at(key).string())
+                throw std::runtime_error("SPOOL_SET_INVALID");
+        expected_sample += values.at("sampleCount").integer();
+        hashes.push_back(chunk.at("contentSha256").string());
+    }
+    if (content.at("totalSamples").integer() != expected_sample ||
+        content.at("windowSha256").string() != v1::window_sha256(hashes))
+        throw std::runtime_error("SPOOL_SET_INVALID");
+}
 bool date_time(const std::string& text) {
     // ACK schema accepts RFC3339, not only the millisecond-UTC source profile.
     if (text.size() < 20 || text.size() > 128 || text[4] != '-' || text[7] != '-' ||
@@ -124,11 +176,52 @@ bool matches_ack(const std::string& message, const HttpResponse& response) {
     } catch (...) { return false; }
 }
 Runtime::Runtime(std::filesystem::path root, v1::MessageMetadata metadata, v1::UuidSource uuid)
-    : root_(std::move(root)), metadata_(std::move(metadata)), engine_(std::move(uuid)), spool_(root_) { spool_.recover(); }
-void Runtime::store(const v1::EventWindow& window) {
-    const auto messages = v1::build_messages(metadata_, window);
-    if (std::filesystem::exists(root_ / window.event_id)) spool_.complete_capturing(window.event_id, messages);
-    else spool_.store_completed(window.event_id, messages);
+    : root_(std::move(root)), metadata_(std::move(metadata)), engine_(std::move(uuid)), spool_(root_) {
+    for (const auto& entry : spool_.recover()) {
+        if (entry.state == v1::SpoolState::Quarantined) continue;
+        // Individual files may all have valid hashes after a crash between
+        // writes but belong to different capture checkpoints. Never send that
+        // inconsistent set as a completed event.
+        try { verify_completed_set(root_ / entry.event_id, entry); }
+        catch (...) { spool_.quarantine(entry.event_id); }
+    }
+}
+void Runtime::store(const v1::EventWindow& window, bool capturing) {
+    if (dropped_event_id_ == window.event_id) return;
+    const auto messages = v1::build_growing_messages(metadata_, window);
+    const auto entries = spool_.inventory();
+    const auto existing = std::find_if(entries.begin(), entries.end(),
+        [&](const v1::SpoolEntry& entry) { return entry.event_id == window.event_id; });
+    v1::AdmissionResult result;
+    if (existing != entries.end()) {
+        // A transport conflict freezes retained bytes. Continued acquisition or
+        // shutdown must not overwrite the quarantined event or kill the process.
+        if (existing->state == v1::SpoolState::Quarantined) return;
+        try {
+            for (std::size_t i = 0; i < existing->chunk_count; ++i) {
+                const auto path = root_ / window.event_id / message_filename(i);
+                const auto previous = durable_message(path);
+                if (i >= messages.chunks.size() ||
+                    ((sealed_capture_chunk(previous) || std::filesystem::exists(path.string() + ".ack")) &&
+                     previous != messages.chunks[i].canonical_json))
+                    throw std::runtime_error("SEALED_CHUNK_CHANGED");
+            }
+        } catch (...) {
+            spool_.quarantine(window.event_id);
+            return;
+        }
+        result = capturing ? spool_.checkpoint_capturing(window.event_id, messages)
+                           : spool_.complete_capturing(window.event_id, messages);
+    } else {
+        result = capturing ? spool_.store_capturing_for_recovery(window.event_id, messages)
+                           : spool_.store_completed(window.event_id, messages);
+    }
+    // Admission is decided once per event, never reconsidered after a backlog
+    // drains (which would silently admit a partially captured rejected event).
+    if (result == v1::AdmissionResult::WindowDroppedQueueFull) {
+        dropped_event_id_ = window.event_id;
+        if (existing != entries.end()) spool_.quarantine(window.event_id);
+    }
 }
 v1::IngestResult Runtime::ingest(const v1::SourceFrame& frame) {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -136,11 +229,7 @@ v1::IngestResult Runtime::ingest(const v1::SourceFrame& frame) {
     if (result.completed) store(*result.completed);
     else if (result.event_active && (result.retained || result.event_started)) {
         auto snapshot = engine_; auto interrupted = snapshot.abort_restart();
-        if (interrupted) {
-            const auto messages = v1::build_messages(metadata_, *interrupted);
-            if (std::filesystem::exists(root_ / interrupted->event_id)) spool_.checkpoint_capturing(interrupted->event_id, messages);
-            else spool_.store_capturing_for_recovery(interrupted->event_id, messages);
-        }
+        if (interrupted) store(*interrupted, true);
     }
     return result;
 }
@@ -165,29 +254,45 @@ std::vector<v1::SpoolEntry> Runtime::inventory() { std::lock_guard<std::mutex> l
 std::optional<PendingMessage> Runtime::next_message() {
     std::lock_guard<std::mutex> lock(mutex_);
     for (const auto& event : spool_.inventory()) {
-        if (event.state != v1::SpoolState::ReadyToSend && event.state != v1::SpoolState::WaitingAck) continue;
+        const bool capturing = event.state == v1::SpoolState::Capturing;
+        if (!capturing && event.state != v1::SpoolState::ReadyToSend && event.state != v1::SpoolState::WaitingAck) continue;
         if (event.state == v1::SpoolState::ReadyToSend) spool_.mark_waiting_ack(event.event_id);
-        for (std::size_t i = 0; i <= event.chunk_count; ++i) {
-            std::ostringstream file;
-            if (i < event.chunk_count) file << "chunk-" << std::setfill('0') << std::setw(3) << i << ".json";
-            else file << "completion.json";
-            auto path = root_ / event.event_id / file.str();
+        for (std::size_t i = 0; i < event.chunk_count + (capturing ? 0U : 1U); ++i) {
+            const auto index = i < event.chunk_count ? std::optional<std::size_t>{i} : std::nullopt;
+            const auto path = root_ / event.event_id / message_filename(index);
             if (std::filesystem::exists(path.string() + ".ack")) continue;
-            return PendingMessage{event.event_id, i < event.chunk_count ? std::optional<std::size_t>{i} : std::nullopt, read_file(path, 65536)};
+            try {
+                auto bytes = durable_message(path);
+                if (capturing && !sealed_capture_chunk(bytes)) break;
+                return PendingMessage{event.event_id, index, std::move(bytes)};
+            } catch (...) {
+                spool_.quarantine(event.event_id);
+                break;
+            }
         }
         spool_.delete_if_fully_acknowledged(event.event_id);
     }
     return std::nullopt;
 }
 bool Runtime::accept(const PendingMessage& message, const HttpResponse& response) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const auto entries = spool_.inventory();
+    const auto entry = std::find_if(entries.begin(), entries.end(),
+        [&](const v1::SpoolEntry& value) { return value.event_id == message.event_id; });
+    if (entry == entries.end() || entry->state == v1::SpoolState::Quarantined) return false;
+    try {
+        if (durable_message(root_ / message.event_id / message_filename(message.chunk_index)) != message.bytes)
+            throw std::runtime_error("IN_FLIGHT_MESSAGE_CHANGED");
+    } catch (...) {
+        spool_.quarantine(message.event_id);
+        return false;
+    }
     if (!matches_ack(message.bytes, response)) {
         if (response.status != 0 && !retryable_http(response.status)) {
-            std::lock_guard<std::mutex> lock(mutex_);
             spool_.quarantine(message.event_id);
         }
         return false;
     }
-    std::lock_guard<std::mutex> lock(mutex_);
     if (message.chunk_index) spool_.acknowledge_chunk(message.event_id, *message.chunk_index);
     else spool_.acknowledge_completion(message.event_id);
     spool_.delete_if_fully_acknowledged(message.event_id);

@@ -321,7 +321,8 @@ std::string canonicalize_completion_content(
     const std::size_t active = phase_count(Phase::Active);
     const std::size_t post = phase_count(Phase::Post);
     if (pre > 30U || active > 100U || post > 20U ||
-        chunk_content_sha256.size() != (window.samples.size() + 9U) / 10U) {
+        chunk_content_sha256.size() < (window.samples.size() + 9U) / 10U ||
+        chunk_content_sha256.size() > std::min<std::size_t>(15U, window.samples.size())) {
         throw std::invalid_argument("completion counts do not satisfy the v1 schema");
     }
     std::set<std::string> unique_hashes(
@@ -365,12 +366,21 @@ void enforce_message_size(std::string_view message) {
     }
 }
 
-MessageSet build_messages(const MessageMetadata& metadata, const EventWindow& window) {
+namespace {
+MessageSet build_partitioned_messages(const MessageMetadata& metadata, const EventWindow& window, bool seal_pre) {
     validate_metadata(metadata, window);
+    const auto first_non_pre = std::find_if(window.samples.begin(), window.samples.end(),
+        [](const RetainedSample& sample) { return sample.phase != Phase::Pre; });
+    const auto pre_count = static_cast<std::size_t>(std::distance(window.samples.begin(), first_non_pre));
+    if (seal_pre && std::any_of(first_non_pre, window.samples.end(),
+        [](const RetainedSample& sample) { return sample.phase == Phase::Pre; })) {
+        throw std::invalid_argument("PRE samples must precede ACTIVE/POST");
+    }
     MessageSet result;
     std::vector<std::string> chunk_hashes;
-    for (std::size_t first = 0; first < window.samples.size(); first += 10U) {
-        const std::size_t count = std::min<std::size_t>(10U, window.samples.size() - first);
+    for (std::size_t first = 0; first < window.samples.size();) {
+        const auto end = seal_pre && first < pre_count ? pre_count : window.samples.size();
+        const std::size_t count = std::min<std::size_t>(10U, end - first);
         std::vector<RetainedSample> chunk_samples(
             window.samples.begin() + static_cast<std::ptrdiff_t>(first),
             window.samples.begin() + static_cast<std::ptrdiff_t>(first + count));
@@ -385,6 +395,7 @@ MessageSet build_messages(const MessageMetadata& metadata, const EventWindow& wi
         filename << "chunk-" << std::setw(3) << std::setfill('0') << chunk_index << ".json";
         result.chunks.push_back({filename.str(), std::move(message), content_hash});
         chunk_hashes.push_back(content_hash);
+        first += count;
     }
 
     const std::string completion_content =
@@ -396,6 +407,15 @@ MessageSet build_messages(const MessageMetadata& metadata, const EventWindow& wi
     result.completion = {
         "completion.json", std::move(completion_message), completion_hash};
     return result;
+}
+}  // namespace
+
+MessageSet build_messages(const MessageMetadata& metadata, const EventWindow& window) {
+    return build_partitioned_messages(metadata, window, false);
+}
+
+MessageSet build_growing_messages(const MessageMetadata& metadata, const EventWindow& window) {
+    return build_partitioned_messages(metadata, window, true);
 }
 
 const char* unit_role_name(UnitRole role) {

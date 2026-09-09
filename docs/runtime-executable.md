@@ -39,6 +39,35 @@ The unchanged diagnostic scaffold must not be used for a Brake product upload.
   retry preserves bytes, valid matching durable ACK permits deletion, and
   permanent conflict quarantines retained evidence.
 
+## Growing-window delivery
+
+The accepted D4-016.1/.2 and D4-017 messages are unchanged. The runtime seals
+the PRE prefix separately from ACTIVE/POST: PRE chunks (including a short
+last PRE chunk) become eligible as soon as the trigger checkpoint is durable.
+Later complete ten-sample ACTIVE/POST chunks are eligible during capture;
+their trailing partial chunk waits until full or terminal. The local
+`ABORTED_RESTART` checkpoint is never sent while capture remains active.
+
+This partition needs at most `ceil(PRE / 10) + ceil((ACTIVE + POST) / 10)`
+chunks: the accepted bounds of 30 PRE and 120 ACTIVE/POST samples retain the
+existing maximum of 15. It does not require warming a full PRE ring before
+the first trigger. The completed-message serializer and its golden vectors
+remain unchanged; the runtime uses the additional growing-message serializer.
+The backend's existing cumulative `firstSampleIndex` validation accepts these
+boundaries; no backend API or contract version change is required.
+
+An ACK during capture never deletes the event. Sealed bytes cannot change
+while in flight, terminal publication preserves acknowledged chunks, and the
+single terminal completion commits to the exact transmitted digest sequence.
+Recovery preserves chunk ACKs and closes intact captures as `ABORTED_RESTART`.
+A torn multi-file checkpoint is quarantined when individually valid chunk
+files and completion disagree. HTTP conflict similarly freezes retained
+bytes without crashing subsequent acquisition/stop. A capacity-rejected event
+cannot be partly re-admitted merely because an older event drains later.
+
+These are host-tested producer/queue behaviors, not evidence of a running
+backend, ARM64 deployment, gRPC data acquisition or observed dashboard growth.
+
 No service-managed cgroups, resource claims, VM manipulation, Cloud calls,
 simulator reads, raw telemetry logging or separate log archive are introduced.
 
@@ -147,7 +176,7 @@ distribution gRPC libraries merely because their package names match.
 
 ## Verification scope and remaining product work
 
-Four host CTest targets pass: existing v1/v2 domains, eight runtime protocol/
+Four host CTest targets pass: existing v1/v2 domains, thirteen runtime protocol/
 durability groups, and five application input/token/clock/provenance groups.
 `brake-health-bootstrap` compiles with warnings-as-errors. Tests use isolated
 fixtures only; no runtime fixture records are installed or sent to a live
@@ -159,6 +188,9 @@ qualify renewal/rejection/reconnect with an isolated KAC+TLS fixture, assemble
 real ARM64 executables and library/license closure through Demo Control, then
 set the accepted package permissions/resources, `minInstances: 1` and
 `offlineTTL: P7D`. Current quota requests remain unqualified, especially gRPC
-thread and memory use. Growing-window publication remains outstanding: the
-current runtime drains windows once terminal completion is durably available.
-v2/v3 runtime and advisory composition are separate subsequent work.
+thread and memory use. Growing-window publication is implemented and locally
+tested; real KUKSA-to-backend/dashboards verification is still outstanding.
+Capacity/quarantine readiness and aggregated operational-fact reporting need
+separate executable qualification; local retention tests do not establish
+those operator-visible states. v2/v3 runtime and advisory composition are
+separate subsequent work.

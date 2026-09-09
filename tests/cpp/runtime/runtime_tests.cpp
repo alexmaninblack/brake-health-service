@@ -45,7 +45,9 @@ void start(Runtime& runtime) {
     CHECK(runtime.ingest(frame(200)).event_started);
     CHECK(runtime.inventory().size() == 1);
     CHECK(runtime.inventory().front().state == v1::SpoolState::Capturing);
-    CHECK(!runtime.next_message());
+    const auto pre = runtime.next_message();
+    CHECK(pre && pre->chunk_index == 0);
+    CHECK(parse_json(pre->bytes).at("content").at("sampleCount").integer() == 1);
 }
 std::string ack(const std::string& bytes, std::string date = "2026-09-09T00:00:00Z", std::string state = "DURABLE_ACCEPTED") {
     const auto message = parse_json(bytes);
@@ -191,13 +193,148 @@ void vdp_change_keeps_provenance() {
     next_metadata.service_artifact_sha256 = std::string(64, '4');
     rejects([&] { runtime.update_vdp_metadata(next_metadata); });
 }
+void growing_pre_active_and_completion() {
+    Directory directory;
+    Runtime runtime(directory.path, metadata(), [] { return event_id; });
+    start(runtime);  // A short PRE is eligible immediately, while braking.
+    const auto pre = *runtime.next_message();
+    CHECK(pre.bytes.find("\"phase\":\"PRE\"") != std::string::npos);
+    CHECK(!runtime.accept(pre, {503, "", 0}));
+    for (int time = 250; time <= 1700; time += 50) runtime.ingest(frame(time));
+    CHECK(runtime.next_message()->bytes == pre.bytes);
+    CHECK(runtime.accept(pre, {201, ack(pre.bytes), 0}));
+    const auto active = *runtime.next_message();
+    CHECK(active.chunk_index == 1);
+    const auto content = parse_json(active.bytes).at("content");
+    CHECK(content.at("sampleCount").integer() == 10);
+    CHECK(content.at("firstSampleIndex").integer() == 1);
+    CHECK(active.bytes.find("\"phase\":\"ACTIVE\"") != std::string::npos);
+    CHECK(runtime.inventory().front().state == v1::SpoolState::Capturing);
+    for (int time = 1750; time <= 1850; time += 50) runtime.ingest(frame(time));
+    CHECK(runtime.next_message()->bytes == active.bytes); // In-flight prefix stays sealed.
+    CHECK(runtime.accept(active, {200, ack(active.bytes, "2026-09-09T00:00:00Z", "DUPLICATE_ACCEPTED"), 0}));
+    CHECK(!runtime.next_message()); // Partial ACTIVE tail and restart completion are private.
+    runtime.stop();
+    const auto tail = *runtime.next_message();
+    CHECK(tail.chunk_index == 2);
+    CHECK(parse_json(tail.bytes).at("content").at("sampleCount").integer() == 1);
+    CHECK(runtime.accept(tail, {201, ack(tail.bytes), 0}));
+    const auto completion = *runtime.next_message();
+    CHECK(!completion.chunk_index);
+    const auto terminal = parse_json(completion.bytes).at("content");
+    CHECK(terminal.at("totalChunks").integer() == 3 && terminal.at("totalSamples").integer() == 12);
+    const auto& hashes = std::get<Json::Array>(terminal.at("chunkContentSha256").value);
+    CHECK(hashes[0].string() == parse_json(pre.bytes).at("contentSha256").string());
+    CHECK(hashes[1].string() == parse_json(active.bytes).at("contentSha256").string());
+    CHECK(runtime.accept(completion, {201, ack(completion.bytes), 0}));
+    CHECK(runtime.inventory().empty());
+}
+void growing_restart_and_quarantine() {
+    Directory directory;
+    {
+        Runtime runtime(directory.path, metadata(), [] { return event_id; });
+        start(runtime);
+        auto pre = *runtime.next_message();
+        CHECK(runtime.accept(pre, {201, ack(pre.bytes), 0}));
+        runtime.ingest(frame(250)); // One mutable ACTIVE sample, never sent.
+        CHECK(!runtime.next_message());
+    }
+    Runtime recovered(directory.path, metadata(), [] { return event_id; });
+    auto pending = *recovered.next_message();
+    CHECK(pending.chunk_index == 1); // ACKed PRE is not retransmitted after restart.
+    CHECK(recovered.accept(pending, {201, ack(pending.bytes), 0}));
+    pending = *recovered.next_message(); CHECK(!pending.chunk_index);
+    CHECK(pending.bytes.find("ABORTED_RESTART") != std::string::npos);
+    CHECK(recovered.accept(pending, {201, ack(pending.bytes), 0}));
+    CHECK(recovered.inventory().empty());
+
+    Directory conflict;
+    Runtime runtime(conflict.path, metadata(), [] { return event_id; });
+    start(runtime);
+    const auto pre = *runtime.next_message();
+    const auto checkpoint = read_file(conflict.path / event_id / "restart-completion.json", 65536);
+    CHECK(!runtime.accept(pre, {409, "{}", 0}));
+    runtime.ingest(frame(250)); runtime.disconnect(); runtime.stop();
+    CHECK(runtime.inventory().front().state == v1::SpoolState::Quarantined);
+    CHECK(read_file(conflict.path / event_id / "restart-completion.json", 65536) == checkpoint);
+    CHECK(read_file(conflict.path / event_id / "chunk-000.json", 65536) == pre.bytes);
+    CHECK(!runtime.accept(pre, {201, ack(pre.bytes), 0}));
+    CHECK(!runtime.next_message());
+}
+void growing_interrupted_checkpoint() {
+    Directory directory;
+    {
+        Runtime runtime(directory.path, metadata(), [] { return event_id; });
+        start(runtime);
+        const auto checkpoint_path = directory.path / event_id / "restart-completion.json";
+        const auto previous = read_file(checkpoint_path, 65536);
+        const auto pre = *runtime.next_message();
+        CHECK(runtime.accept(pre, {201, ack(pre.bytes), 0}));
+        runtime.ingest(frame(250));
+        // Emulate a crash after the new chunk is durable, before publishing
+        // the new checkpoint. Both old completion files remain hash-valid.
+        atomic_private_file(checkpoint_path, previous);
+        atomic_private_file(checkpoint_path.string() + ".sha256", v1::sha256_hex(previous));
+    }
+    Runtime recovered(directory.path, metadata(), [] { return event_id; });
+    CHECK(recovered.inventory().front().state == v1::SpoolState::Quarantined);
+    CHECK(!recovered.next_message());
+    CHECK(std::filesystem::exists(directory.path / event_id / "chunk-000.json.ack"));
+    CHECK(std::filesystem::exists(directory.path / event_id / "chunk-001.json"));
+}
+void growing_partition_bounds() {
+    for (std::size_t pre_count = 0; pre_count <= 30; ++pre_count) {
+        v1::EventWindow window{event_id, utc_timestamp(1787400000200LL), v1::TerminalState::Complete,
+                               v1::ReasonCode::NormalClear, {}};
+        for (std::size_t i = 0; i < pre_count + 120; ++i)
+            window.samples.push_back({frame(static_cast<std::int64_t>(i) * 100),
+                i < pre_count ? v1::Phase::Pre : i < pre_count + 100 ? v1::Phase::Active : v1::Phase::Post});
+        const auto messages = v1::build_growing_messages(metadata(), window);
+        CHECK(messages.chunks.size() == (pre_count + 9) / 10 + 12);
+        CHECK(messages.chunks.size() <= 15);
+        std::size_t expected = 0;
+        for (const auto& chunk : messages.chunks) {
+            const auto content = parse_json(chunk.canonical_json).at("content");
+            CHECK(static_cast<std::size_t>(content.at("firstSampleIndex").integer()) == expected);
+            expected += static_cast<std::size_t>(content.at("sampleCount").integer());
+        }
+        CHECK(expected == window.samples.size());
+    }
+}
+void rejected_capture_is_not_readmitted() {
+    Directory directory;
+    unsigned event = 0;
+    Runtime runtime(directory.path, metadata(), [&] {
+        return std::string("00000000-0000-4000-8000-00000000000") + std::to_string(++event);
+    });
+    for (int i = 0; i < 8; ++i) {
+        for (int offset = 0; offset <= 200; offset += 50) runtime.ingest(frame(i * 500 + offset));
+        runtime.stop();
+    }
+    CHECK(runtime.inventory().size() == 8);
+    for (int time = 4000; time <= 4200; time += 50) runtime.ingest(frame(time));
+    CHECK(event == 9 && runtime.inventory().size() == 8);
+    while (runtime.inventory().size() == 8) {
+        const auto pending = *runtime.next_message();
+        CHECK(runtime.accept(pending, {201, ack(pending.bytes), 0}));
+    }
+    for (int time = 4250; time <= 4450; time += 50) runtime.ingest(frame(time));
+    runtime.stop();
+    CHECK(runtime.inventory().size() == 7);
+    CHECK(!std::filesystem::exists(directory.path / "00000000-0000-4000-8000-000000000009"));
+}
 }  // namespace
 int main() {
     const std::pair<const char*, std::function<void()>> groups[]{
         {"strict JSON", json_bounds}, {"coherent frames", coherent_input}, {"KAC envelopes", kac_envelope},
         {"HTTP and retry bounds", http_and_retry}, {"durable ACK delivery", durable_delivery},
         {"restart, source gap and conflict", restart_disconnect_and_conflict}, {"private file replacement", private_file},
-        {"VDP change preserves captured provenance", vdp_change_keeps_provenance}};
+        {"VDP change preserves captured provenance", vdp_change_keeps_provenance},
+        {"growing PRE, ACTIVE and single completion", growing_pre_active_and_completion},
+        {"growing restart ACK and conflict retention", growing_restart_and_quarantine},
+        {"interrupted checkpoint is quarantined", growing_interrupted_checkpoint},
+        {"rejected capture is never partly readmitted", rejected_capture_is_not_readmitted},
+        {"growing partition bounds", growing_partition_bounds}};
     int failed = 0;
     for (const auto& group : groups) {
         try { group.second(); std::cout << "PASS: " << group.first << '\n'; }
