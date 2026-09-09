@@ -29,6 +29,11 @@ The packaged scaffold executable remains unchanged: it contains none of this
 runtime and no KUKSA subscription or bootstrap process. Source completion does
 not claim a composed, deployable, calibrated or qualified Brake Health Service.
 
+The [Linux ARM64 product build recipe](docs/product-build.md) is ready for
+Demo Control to invoke. Its export requires the actual gRPC executable,
+successful CTest evidence and verified ELF dependency closure; it never
+substitutes the diagnostic scaffold.
+
 ## Ownership Boundary
 
 This repository owns a cloud-managed application with an independent Aos

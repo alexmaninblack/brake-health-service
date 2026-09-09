@@ -95,7 +95,10 @@ If no already-supported service-visible carrier closes these inputs, the
 smallest proposed integration delta to review is **read-only public leaf
 delivery plus read-only authoritative metadata delivery/change ownership**.
 Only the public leaf is needed, never its sibling private key or Provider JWT.
-This proposal is not implemented or approved as a guest resource change here.
+The minimal read-only metadata/public-trust interface and a transient Test
+proof without rebuilding `.31` are now authorized. This Service repository
+does not implement the guest resource; the integration owner implements and
+verifies the exact binding.
 Native API availability does not justify giving a Service new IAM/network
 access; the exact supported delivery mechanism still needs to be agreed and
 tested. A Factory rebuild is not assumed necessary or authorized by this work.
@@ -120,6 +123,11 @@ These are build-tool inputs, not new operator workflow wrappers. CMake does
 not download dependencies. The product option fails configuration if required
 dependencies are absent; its default OFF is explicitly labelled host/domain
 only and must never be used to assert product success.
+
+The subsequent [product Docker recipe and export contract](product-build.md)
+provides the pinned Linux ARM64 build path for Demo Control. Docker was not
+executed by the source implementation lane; the first real build and
+transient-Test qualification remain owned by integration.
 
 Pinned inputs match the recorded Factory C++ versions:
 

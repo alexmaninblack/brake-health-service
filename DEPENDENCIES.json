@@ -7,7 +7,7 @@
       "revision": "e5ae3b6b44bf3b64d24bfb4b4f82556239b986db",
       "displayVersion": "1.60.1",
       "license": "Apache-2.0",
-      "bundledThirdPartyLicenses": ["BSD-3-Clause", "MPL-2.0"],
+      "bundledThirdPartyLicenses": ["BSD-3-Clause", "MPL-2.0", "MIT", "Zlib"],
       "source": "https://github.com/grpc/grpc"
     },
     {
@@ -23,6 +23,13 @@
       "displayVersion": "20240116.3",
       "license": "Apache-2.0",
       "source": "https://github.com/abseil/abseil-cpp"
+    },
+    {
+      "name": "OpenSSL static runtime",
+      "revision": "archive-sha256:89681a9ddaa9ed7cf25ea8ef61338db805200bae47d00510490623547380c148",
+      "displayVersion": "3.2.6",
+      "license": "Apache-2.0",
+      "source": "https://github.com/openssl/openssl/releases/tag/openssl-3.2.6"
     }
   ],
   "build": [
@@ -65,5 +72,11 @@
       "source": "https://github.com/fsfe/reuse-action"
     }
   ],
-  "distributionNote": "The diagnostic scaffold is unchanged and is not the product. Product C++ target uses the pinned Factory .31 library versions above, but Linux ARM64 ELF/link closure and transitive public notices remain required build evidence. No third-party source or binary is vendored here. CI tools are not bundled."
+  "containerBuild": {
+    "baseImage": "debian:bookworm-slim@sha256:6bd27d44e6c32a66bbd72d7cb2b76a8ae3497ec2e5274a81abd1b37f6013fa1f",
+    "architecture": "linux/arm64",
+    "aptSnapshot": "20260901T000000Z",
+    "compilerRuntime": "GCC 12 static libstdc++/libgcc; exact Debian package versions and copyright/runtime-exception notices exported per build"
+  },
+  "distributionNote": "The diagnostic scaffold is unchanged and is not the product. The Docker product target statically links pinned third-party libraries and verifies a glibc-only AArch64 ELF dependency boundary. Its exported source revisions/public notices and actual CTest report are required build evidence; first Docker build/live qualification are pending. No third-party source or binary is vendored here. CI tools are not bundled."
 }

@@ -16,8 +16,9 @@
 #endif
 
 namespace {
-volatile std::sig_atomic_t interrupted = 0;
-void signal_handler(int) { interrupted = 1; }
+static_assert(std::atomic<bool>::is_always_lock_free, "Signal flag must be lock-free");
+std::atomic<bool> interrupted{false};
+void signal_handler(int) { interrupted.store(true, std::memory_order_relaxed); }
 using namespace brake_health::runtime;
 void auth_state(bool ready) {
     std::cout << "{\"schemaVersion\":1,\"eventType\":\"KUKSA_AUTH_CHANGED\",\"severity\":\"INFO\",\"currentState\":\""

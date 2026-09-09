@@ -94,8 +94,8 @@ def check_dependencies() -> list[str]:
             name = dependency.get("name", "<unnamed>")
             if dependency.get("license") not in ALLOWED_DEPENDENCY_LICENSES:
                 errors.append(f"DEPENDENCIES.json: {name} has an unknown license")
-            if not re.fullmatch(r"[0-9a-f]{40}", dependency.get("revision", "")):
-                errors.append(f"DEPENDENCIES.json: {name} is not pinned to a commit")
+            if not re.fullmatch(r"(?:[0-9a-f]{40}|archive-sha256:[0-9a-f]{64})", dependency.get("revision", "")):
+                errors.append(f"DEPENDENCIES.json: {name} is not pinned to a commit or archive SHA-256")
     return errors
 
 

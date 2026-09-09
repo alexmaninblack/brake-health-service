@@ -17,8 +17,9 @@
 namespace {
 using namespace brake_health::runtime;
 namespace val = kuksa::val::v1;
-volatile std::sig_atomic_t interrupted = 0;
-void signal_handler(int) { interrupted = 1; }
+static_assert(std::atomic<bool>::is_always_lock_free, "Signal flag must be lock-free");
+std::atomic<bool> interrupted{false};
+void signal_handler(int) { interrupted.store(true, std::memory_order_relaxed); }
 class Log {
     std::mutex mutex_;
     std::map<std::string, std::string> previous_;

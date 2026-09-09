@@ -3,6 +3,12 @@
 
 # Aos Service Packaging
 
+For the actual Brake v1 executable candidate, use the Demo Control-owned
+[Linux ARM64 product build](../../docs/product-build.md). Its output is
+verified native binaries and public notices, not a signed deployment bundle.
+The rest of this page describes the unchanged diagnostic scaffold and must
+not be mistaken for the product publication path.
+
 `config.yaml` is a credential-free Aos signer schema-version-2 template for a
 single ARM64 diagnostic service image. It references the conventional local
 filename `aos-user-sp.p12`, but that certificate is neither included nor

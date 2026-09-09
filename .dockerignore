@@ -1,0 +1,21 @@
+# SPDX-FileCopyrightText: 2026 maninblack
+# SPDX-License-Identifier: Apache-2.0
+*
+!CMakeLists.txt
+!Dockerfile
+!.dockerignore
+!cmake/
+!cmake/**
+!include/
+!include/**
+!src/
+!src/**
+!tests/
+!tests/cpp/
+!tests/cpp/**
+!tools/
+!tools/build_scaffold.py
+!DEPENDENCIES.json
+!LICENSE
+!NOTICE
+!THIRD_PARTY_NOTICES.md
