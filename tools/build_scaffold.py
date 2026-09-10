@@ -119,10 +119,13 @@ def inspect_test_report(path: Path) -> dict[str, object]:
 
 
 def export_runtime(runtime_root: Path, output: Path, source_revision: str,
-                   source_date_epoch: int, dependency_source_root: Path, test_report: Path) -> Path:
+                   source_date_epoch: int, dependency_source_root: Path, test_report: Path,
+                   functional_profile: str = "v1") -> Path:
     """Internal packaging-library export used by Docker, invoked by Demo Control."""
     if not re.fullmatch(r"[0-9a-f]{40}", source_revision) or source_date_epoch <= 0:
         raise ScaffoldError("exact source revision and commit timestamp are required")
+    if functional_profile not in ("v1", "v2", "v3"):
+        raise ScaffoldError("explicit product content profile must be v1, v2 or v3")
     runtime_root, output, dependency_source_root = runtime_root.resolve(), output.resolve(), dependency_source_root.resolve()
     if output.exists() or output == runtime_root or runtime_root in output.parents:
         raise ScaffoldError("export must use a new output directory outside the input rootfs")
@@ -185,6 +188,7 @@ def export_runtime(runtime_root: Path, output: Path, source_revision: str,
         "schemaVersion": 1, "kind": PRODUCT_KIND, "sourceRevision": source_revision,
         "sourceDateEpoch": source_date_epoch, "architecture": "arm64", "os": "linux",
         "productTarget": "BHS_BUILD_KUKSA_RUNTIME=ON", "tests": tests, "binaries": binaries,
+        "functionalProfile": functional_profile,
         "dependencies": dependencies, "compilerRuntimePackages": compiler_versions,
         "baseImage": "debian:bookworm-slim@sha256:6bd27d44e6c32a66bbd72d7cb2b76a8ae3497ec2e5274a81abd1b37f6013fa1f",
         "aptSnapshot": "20260901T000000Z",
@@ -233,6 +237,7 @@ def main() -> int:
     parser.add_argument("--runtime-root", type=Path)
     parser.add_argument("--source-revision")
     parser.add_argument("--source-date-epoch", type=int)
+    parser.add_argument("--functional-profile", choices=("v1", "v2", "v3"), default="v1")
     parser.add_argument("--dependency-source-root", type=Path)
     parser.add_argument("--test-report", type=Path)
     args = parser.parse_args()
@@ -241,7 +246,7 @@ def main() -> int:
             if not all((args.source_revision, args.source_date_epoch, args.dependency_source_root, args.test_report)):
                 raise ScaffoldError("runtime export requires revision, timestamp, dependency source and CTest report")
             output = export_runtime(args.runtime_root, args.output, args.source_revision,
-                                    args.source_date_epoch, args.dependency_source_root, args.test_report)
+                                    args.source_date_epoch, args.dependency_source_root, args.test_report, args.functional_profile)
             print(f"Verified Linux ARM64 product exported: {output}")
             print("No signing, upload, credentials, runtime bindings or live qualification was performed.")
             return 0

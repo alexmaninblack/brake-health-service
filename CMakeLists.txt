@@ -3,6 +3,11 @@
 
 cmake_minimum_required(VERSION 3.16)
 project(brake_health_service LANGUAGES CXX)
+set(BHS_FUNCTIONAL_PROFILE "v1" CACHE STRING "Explicit immutable product content profile: v1, v2 or v3")
+set_property(CACHE BHS_FUNCTIONAL_PROFILE PROPERTY STRINGS v1 v2 v3)
+if(NOT BHS_FUNCTIONAL_PROFILE MATCHES "^v[123]$")
+    message(FATAL_ERROR "BHS_FUNCTIONAL_PROFILE must be v1, v2 or v3; it is never inferred from a release")
+endif()
 
 add_library(brake_health_v1
     src/v1/messages.cpp
@@ -24,15 +29,21 @@ endif()
 
 find_package(Threads REQUIRED)
 add_library(brake_health_runtime
+    src/runtime/advisory_runtime.cpp
     src/runtime/application.cpp
     src/runtime/derived_delivery.cpp
     src/runtime/json.cpp
+    src/runtime/model_capture.cpp
+    src/runtime/product.cpp
     src/runtime/runtime.cpp
     src/runtime/posix.cpp
+    src/v3/advisory.cpp
+    src/v3/messages.cpp
 )
 target_include_directories(brake_health_runtime PUBLIC include)
 target_link_libraries(brake_health_runtime PUBLIC brake_health_v1 Threads::Threads)
 target_compile_features(brake_health_runtime PUBLIC cxx_std_17)
+target_compile_definitions(brake_health_runtime PUBLIC BHS_FUNCTIONAL_PROFILE="${BHS_FUNCTIONAL_PROFILE}")
 set_target_properties(brake_health_runtime PROPERTIES CXX_EXTENSIONS OFF CXX_STANDARD_REQUIRED ON)
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
     target_compile_options(brake_health_runtime PRIVATE -Wall -Wextra -Wpedantic -Werror)
@@ -100,7 +111,7 @@ if(BUILD_TESTING)
         target_compile_options(brake_health_runtime_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
     endif()
     add_test(NAME brake_health_runtime_contract COMMAND brake_health_runtime_tests)
-    add_executable(brake_health_application_tests tests/cpp/runtime/application_tests.cpp)
+    add_executable(brake_health_application_tests tests/cpp/runtime/application_tests.cpp tests/cpp/runtime/product_tests.cpp)
     target_link_libraries(brake_health_application_tests PRIVATE brake_health_runtime)
     if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
         target_compile_options(brake_health_application_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)

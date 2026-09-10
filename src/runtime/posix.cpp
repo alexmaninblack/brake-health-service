@@ -94,7 +94,8 @@ std::string read_file(const std::filesystem::path& path, std::size_t limit) {
     }
     return result;
 }
-void atomic_private_file(const std::filesystem::path& path, const std::string& bytes) {
+void atomic_private_file(const std::filesystem::path& path, const std::string& bytes, unsigned mode) {
+    if (mode != 0400 && mode != 0600) throw std::invalid_argument("PRIVATE_FILE_MODE_INVALID");
     struct stat info{};
     if (::lstat(path.parent_path().c_str(), &info) != 0 || !S_ISDIR(info.st_mode) || info.st_uid != ::geteuid() || (info.st_mode & 0777) != 0700) throw std::runtime_error("TOKEN_DIRECTORY_INVALID");
     const auto temporary = path.string() + ".next-" + std::to_string(::getpid());
@@ -108,7 +109,7 @@ void atomic_private_file(const std::filesystem::path& path, const std::string& b
             if (n <= 0) throw std::runtime_error("TOKEN_WRITE_FAILED");
             offset += static_cast<std::size_t>(n);
         }
-        if (::fchmod(file.value, 0400) != 0 || ::fsync(file.value) != 0 || ::rename(temporary.c_str(), path.c_str()) != 0) throw std::runtime_error("TOKEN_WRITE_FAILED");
+        if (::fchmod(file.value, static_cast<mode_t>(mode)) != 0 || ::fsync(file.value) != 0 || ::rename(temporary.c_str(), path.c_str()) != 0) throw std::runtime_error("TOKEN_WRITE_FAILED");
     } catch (...) { ::unlink(temporary.c_str()); throw; }
 }
 std::string random_uuid() {

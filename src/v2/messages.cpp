@@ -260,7 +260,7 @@ void validate_metadata(
     const CompletedEpisode& episode,
     const Assessment& assessment) {
     if (!bounded_identifier(metadata.unit_system_uid) ||
-        (metadata.service_version != "2.0.0" && metadata.service_version != "3.0.0") ||
+        !semantic_version(metadata.service_version) ||
         !semantic_version(metadata.vdp_contract_version) ||
         !lowercase_sha256(metadata.service_artifact_sha256) ||
         !lowercase_sha256(metadata.vdp_contract_sha256) ||

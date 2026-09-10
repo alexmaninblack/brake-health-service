@@ -26,7 +26,7 @@ std::optional<v1::SourceFrame> complete_frame(const std::array<Signal, 6>& signa
 std::string utc_timestamp(std::int64_t epoch_ms);
 std::string random_uuid();
 std::string read_file(const std::filesystem::path& path, std::size_t limit);
-void atomic_private_file(const std::filesystem::path& path, const std::string& bytes);
+void atomic_private_file(const std::filesystem::path& path, const std::string& bytes, unsigned mode = 0400);
 
 struct Credential {
     std::string token;

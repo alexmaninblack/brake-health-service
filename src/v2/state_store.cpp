@@ -880,7 +880,9 @@ ModelState StateStore::state() const {
 ProcessResult StateStore::process(
     const CompletedEpisode& episode,
     const DeploymentMetadata& metadata,
-    const SyntheticModel& model) {
+    const SyntheticModel& model,
+    std::size_t other_outbox_count,
+    std::size_t other_outbox_bytes) {
     if (!ready_) {
         return {ProcessStatus::NotReadyState, std::nullopt, std::nullopt, false};
     }
@@ -951,8 +953,9 @@ ProcessResult StateStore::process(
         for (const OutboxEntry& value : current) {
             current_bytes += value.canonical_json.size();
         }
-        const bool admit = derived_outbox_admissible(
-            current.size(), current_bytes, messages.count(), messages.encoded_bytes());
+        const bool admit = other_outbox_count <= 64 && other_outbox_bytes <= 1048576 &&
+            derived_outbox_admissible(current.size() + other_outbox_count,
+                current_bytes + other_outbox_bytes, messages.count(), messages.encoded_bytes());
         try {
             persist_transaction(
                 before,

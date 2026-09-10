@@ -91,6 +91,7 @@ RUN git init /src/kuksa && \
 
 FROM dependencies AS product
 ARG BUILD_JOBS=4
+ARG BHS_FUNCTIONAL_PROFILE=v1
 ARG SOURCE_REVISION
 ARG SOURCE_DATE_EPOCH
 ENV SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}
@@ -102,12 +103,14 @@ RUN [[ "${SOURCE_REVISION}" =~ ^[0-9a-f]{40}$ ]] && [[ "${SOURCE_DATE_EPOCH}" =~
       -DCMAKE_PREFIX_PATH=/opt/bhs -DOPENSSL_ROOT_DIR=/opt/bhs -DOPENSSL_USE_STATIC_LIBS=ON \
       -DCMAKE_EXE_LINKER_FLAGS='-static-libgcc -static-libstdc++ -Wl,--build-id=sha1' \
       -DCMAKE_CXX_FLAGS='-ffile-prefix-map=/src=. -fdebug-prefix-map=/src=.' \
-      -DBHS_BUILD_KUKSA_RUNTIME=ON -DBHS_KUKSA_SOURCE_ROOT=/src/kuksa -DBUILD_TESTING=ON && \
+      -DBHS_BUILD_KUKSA_RUNTIME=ON -DBHS_FUNCTIONAL_PROFILE="${BHS_FUNCTIONAL_PROFILE}" \
+      -DBHS_KUKSA_SOURCE_ROOT=/src/kuksa -DBUILD_TESTING=ON && \
     cmake --build /build/service --parallel "${BUILD_JOBS}" && \
     ctest --test-dir /build/service --output-on-failure --output-junit /build/service/ctest-results.xml && \
     DESTDIR=/build/rootfs cmake --install /build/service && \
     python3 tools/build_scaffold.py --runtime-root /build/rootfs --output /out \
       --source-revision "${SOURCE_REVISION}" --source-date-epoch "${SOURCE_DATE_EPOCH}" \
+      --functional-profile "${BHS_FUNCTIONAL_PROFILE}" \
       --dependency-source-root /src --test-report /build/service/ctest-results.xml
 
 # This is an artifact export target, not a deployable/runnable Docker service.

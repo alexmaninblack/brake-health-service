@@ -8,6 +8,26 @@
 #include <stdexcept>
 
 namespace brake_health::runtime {
+std::string encode_json(const Json& json) {
+    if (std::holds_alternative<std::nullptr_t>(json.value)) return "null";
+    if (const auto* value = std::get_if<bool>(&json.value)) return *value ? "true" : "false";
+    if (const auto* value = std::get_if<std::int64_t>(&json.value)) return std::to_string(*value);
+    if (const auto* value = std::get_if<std::string>(&json.value)) return quote_json(*value);
+    if (const auto* values = std::get_if<Json::Array>(&json.value)) {
+        std::string result = "[";
+        for (const auto& value : *values) { if (result.size() > 1) result += ','; result += encode_json(value); }
+        return result + ']';
+    }
+    if (const auto* values = std::get_if<Json::Object>(&json.value)) {
+        std::string result = "{";
+        for (const auto& item : *values) {
+            if (result.size() > 1) result += ',';
+            result += quote_json(item.first) + ':' + encode_json(item.second);
+        }
+        return result + '}';
+    }
+    throw std::invalid_argument("LEDGER_FLOAT_NOT_ALLOWED");
+}
 namespace {
 [[noreturn]] void invalid() { throw std::invalid_argument("INVALID_JSON"); }
 void utf8(std::string& out, unsigned code) {

@@ -71,7 +71,9 @@ public:
     ProcessResult process(
         const CompletedEpisode& episode,
         const DeploymentMetadata& metadata,
-        const SyntheticModel& model = {});
+        const SyntheticModel& model = {},
+        std::size_t other_outbox_count = 0,
+        std::size_t other_outbox_bytes = 0);
     std::vector<OutboxEntry> inventory() const;
     bool acknowledge(
         const std::string& id,

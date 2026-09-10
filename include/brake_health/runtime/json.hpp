@@ -24,6 +24,10 @@ struct Json {
 };
 Json parse_json(std::string_view text, std::size_t limit = 65536);
 std::string quote_json(std::string_view text);
+// Canonical structural JSON for private integer/string runtime ledgers.
+// Floating point is deliberately unsupported; product model values have their
+// own fixed-point canonical serializer.
+std::string encode_json(const Json& value);
 bool is_sha256(std::string_view text);
 bool is_uuid(std::string_view text);
 }  // namespace brake_health::runtime

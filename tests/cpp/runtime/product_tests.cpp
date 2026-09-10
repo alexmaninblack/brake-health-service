@@ -1,0 +1,182 @@
+// SPDX-FileCopyrightText: 2026 maninblack
+// SPDX-License-Identifier: Apache-2.0
+#include "brake_health/runtime/product.hpp"
+#include "brake_health/v1/sha256.hpp"
+#include <cmath>
+#include <filesystem>
+#include <limits>
+#include <stdexcept>
+#include <unistd.h>
+
+namespace {
+using namespace brake_health::runtime;
+namespace v1 = brake_health::v1;
+namespace v2 = brake_health::v2;
+namespace v3 = brake_health::v3;
+#define CHECK(x) do { if (!(x)) throw std::runtime_error(std::string(#x) + " at product test " + std::to_string(__LINE__)); } while (false)
+template<class F> void rejects(F call) { bool failed = false; try { call(); } catch (...) { failed = true; } CHECK(failed); }
+struct Directory {
+    std::filesystem::path path;
+    Directory() {
+        auto pattern = (std::filesystem::temp_directory_path() / "bhs-product-XXXXXX").string();
+        const auto* made = ::mkdtemp(pattern.data()); CHECK(made); path = made;
+    }
+    ~Directory() { std::error_code ignored; std::filesystem::remove_all(path, ignored); }
+};
+constexpr std::int64_t epoch = 1787400000000LL;
+v1::MessageMetadata metadata(const std::string& release) {
+    return {"host-test-unit", v1::UnitRole::Validation, release, std::string(64, '1'), "42.0.0", std::string(64, '2')};
+}
+std::vector<Signal> sample(std::int64_t time) {
+    const bool braking = time >= 3200 && time < 6200;
+    const double speed = time < 3200 ? 42 : time < 6200 ? 42 - (time - 3200) * 32.0 / 3000 : 0;
+    const auto at = epoch + time;
+    std::vector<Signal> result(12, Signal{0, at, true});
+    result[0].value = speed; result[1].value = braking ? -6 : 0;
+    result[2].value = braking ? 75 : 0;
+    for (std::size_t i = 0; i < 4; ++i) {
+        result[i + 4].value = speed * 10 + (braking && i == 0 ? 30 : 0);
+        result[i + 8].value = speed + (braking && i == 0 ? 3 : 0);
+    }
+    return result;
+}
+v2::ProcessResult drive(Product& product) {
+    std::optional<v2::ProcessResult> result;
+    for (int i = 0; i < 280; ++i) {
+        const auto time = i * 1000 / 30;
+        const auto observation = product.ingest(sample(time), epoch + time + 20, time);
+        CHECK(observation.valid);
+        if (observation.analysis) result = observation.analysis;
+    }
+    CHECK(result); return *result;
+}
+std::string ack(const std::string& bytes) {
+    const auto message = parse_json(bytes); const auto kind = message.at("messageType").string();
+    const auto id = message.at(kind == "BRAKE_HEALTH_ASSESSMENT" ? "assessmentId" : kind == "BRAKE_ADVISORY_FACT" ? "requestId" : "eventId").string();
+    auto key = '[' + quote_json(message.at("unitSystemUid").string()) + ',' + quote_json(kind) + ',' + quote_json(id);
+    if (kind == "BRAKE_ADVISORY_FACT") key += ',' + quote_json(message.at("gatewayState").string());
+    key += ']';
+    return "{\"schemaVersion\":1,\"contractVersion\":\"1.0.0\",\"receiptId\":\"00000000-0000-4000-8000-000000000002\","
+        "\"messageKeySha256\":" + quote_json(v1::sha256_hex(key)) + ",\"contentSha256\":" + quote_json(message.at("contentSha256").string()) +
+        ",\"state\":\"DURABLE_ACCEPTED\",\"receivedAt\":\"2026-09-10T00:00:00Z\"}";
+}
+v3::GatewayStatus applied(const v3::AdvisoryRequest& r, std::int64_t at) {
+    return {r.request_id, r.producer_epoch, r.sequence, v3::GatewayState::Applied, v3::GatewayReason::None, utc_timestamp(at),
+        v3::ActiveRecommendation::InspectionRecommended, v3::ActiveReason::PredictedBrakeDegradation, r.expires_at};
+}
+void adapter_contract() {
+    CHECK(functional_profile("v1") == FunctionalProfile::V1);
+    CHECK(functional_profile("v2") == FunctionalProfile::V2);
+    CHECK(functional_profile("v3") == FunctionalProfile::V3);
+    rejects([] { functional_profile("3.0.0"); }); rejects([] { functional_profile("latest"); });
+    CHECK(quantize_milli(1.2345, -10, 10) == 1235);
+    CHECK(quantize_milli(-1.2345, -10, 10) == -1235);
+    CHECK(quantize_milli(-0.0, -10, 10) == 0);
+    CHECK(quantize_milli(75.0005, 0, 100) == 75001);
+    rejects([] { quantize_milli(std::numeric_limits<double>::quiet_NaN(), -10, 10); });
+    rejects([] { quantize_milli(std::numeric_limits<double>::infinity(), -10, 10); });
+    rejects([] { quantize_milli(101, 0, 100); });
+    const auto input = sample(4000); std::array<Signal, 12> values;
+    std::copy(input.begin(), input.end(), values.begin());
+    CHECK(complete_model_frame(values, epoch + 4250, 4000, epoch + 3999));
+    CHECK(!complete_model_frame(values, epoch + 4251, 4000, epoch + 3999));
+    values[11].valid = false; CHECK(!complete_model_frame(values, epoch + 4020, 4000, epoch + 3999));
+    values[11].valid = true; --values[11].epoch_ms; CHECK(!complete_model_frame(values, epoch + 4020, 4000, epoch + 3999));
+    rejects([] { encode_json(Json{0.25}); });
+}
+void product_upgrade_and_delivery() {
+    Directory directory;
+    v2::ModelState initial;
+    {
+        Product product(directory.path, metadata("21.0.0"), FunctionalProfile::V2);
+        const auto result = drive(product);
+        CHECK(result.status == v2::ProcessStatus::Produced && result.event_created);
+        CHECK(product.analytics_ready());
+        initial = *product.model_state(); CHECK(initial.generation == 1 && initial.condition_band == v2::ConditionBand::InspectionRecommended);
+        CHECK(!product.next_request(epoch + 10000));
+        auto pending = product.next_message(); CHECK(pending && pending->kind == ProductDelivery::Kind::Derived);
+        CHECK(parse_json(pending->bytes()).at("serviceVersion").string() == "21.0.0");
+        CHECK(!product.accept(*pending, {503, "", 0}));
+        CHECK(product.model_state()->generation == 1);
+    }
+    v3::AdvisoryRequest request;
+    {
+        Product product(directory.path, metadata("22.0.0"), FunctionalProfile::V3);
+        CHECK(v2::state_json(*product.model_state()) == v2::state_json(initial));
+        const auto pending = product.next_request(epoch + 10000); CHECK(pending); request = *pending;
+        CHECK(request.sequence == 1 && request.producer_epoch == initial.producer_epoch);
+        CHECK(request.decision_id == *initial.last_assessment_id && request.service_version == "22.0.0");
+        CHECK(product.next_request(epoch + 10500)->canonical_json == request.canonical_json);
+        CHECK(!product.gateway_state());
+    }
+    {
+        Product product(directory.path, metadata("23.0.0"), FunctionalProfile::V3);
+        CHECK(product.next_request(epoch + 11000)->canonical_json == request.canonical_json);
+        const auto status = applied(request, epoch + 11000);
+        auto foreign = status; foreign.producer_epoch = random_uuid();
+        CHECK(!product.observe_gateway(v3::gateway_status_json(foreign), epoch + 11010));
+        CHECK(product.observe_gateway(v3::gateway_status_json(status), epoch + 11020));
+        CHECK(product.observe_gateway(v3::gateway_status_json(status), epoch + 11030));
+        CHECK(product.gateway_state() == "APPLIED");
+        CHECK(!product.next_request(epoch + 29999));
+        unsigned derived_count = 0, facts = 0;
+        while (const auto message = product.next_message()) {
+            if (message->kind == ProductDelivery::Kind::Derived) ++derived_count;
+            else if (message->kind == ProductDelivery::Kind::Advisory) {
+                ++facts; CHECK(parse_json(message->bytes()).at("serviceVersion").string() == "22.0.0");
+            } else CHECK(false);
+            CHECK(product.accept(*message, {201, ack(message->bytes()), 0}));
+        }
+        CHECK(derived_count == 2 && facts == 1);
+        const auto refreshed = product.next_request(epoch + 30000); CHECK(refreshed);
+        CHECK(refreshed->sequence == 2 && refreshed->request_id != request.request_id && refreshed->service_version == "23.0.0");
+        CHECK(refreshed->decision_id == request.decision_id);
+        product.request_written(*refreshed); CHECK(!product.next_request(epoch + 31000));
+        product.stop(); CHECK(v2::state_json(*product.model_state()) == v2::state_json(initial));
+    }
+    Product repeated(directory.path, metadata("24.0.0"), FunctionalProfile::V3);
+    CHECK(!repeated.next_request(epoch + 32000));
+    CHECK(repeated.next_request(epoch + 50000)->sequence == 3);
+}
+void advisory_overflow_and_conflict() {
+    Directory directory;
+    auto model = v2::initial_state(random_uuid()); model.wear_index = 62; model.condition_score = 38;
+    model.condition_band = v2::ConditionBand::InspectionRecommended;
+    model.last_assessment_id = "55e7c2c5-af19-5a79-91d5-8a09c7a6e5d4";
+    model.last_applied_source_event_id = "00000000-0000-4000-8000-000000000001";
+    model.recent_source_event_ids.push_back(*model.last_applied_source_event_id);
+    model.generation = 1;
+    AdvisoryRuntime runtime(directory.path / "state", directory.path / "outbox", model);
+    const auto first = runtime.next_request(model, metadata("25.0.0"), epoch); CHECK(first);
+    const auto status = applied(*first, epoch + 20);
+    CHECK(runtime.observe(v3::gateway_status_json(status), epoch + 30, 64, 1));
+    CHECK(!runtime.next_message() && runtime.current_gateway_state() == "APPLIED");
+    // Overflow is permanent non-enqueue, not a postponed fabricated fact.
+    CHECK(runtime.observe(v3::gateway_status_json(status), epoch + 40, 0, 0));
+    CHECK(!runtime.next_message());
+    const auto next = runtime.next_request(model, metadata("25.0.0"), epoch + 20000); CHECK(next);
+    CHECK(runtime.observe(v3::gateway_status_json(applied(*next, epoch + 20020)), epoch + 20030, 0, 0));
+    const auto message = runtime.next_message(); CHECK(message);
+    CHECK(!runtime.accept(*message, {409, "", 0})); CHECK(!runtime.next_message());
+    CHECK(runtime.outbox_usage().first == 1);
+    AdvisoryRuntime reopened(directory.path / "state", directory.path / "outbox", model);
+    CHECK(!reopened.next_message() && reopened.outbox_usage().first == 1);
+    CHECK(reopened.next_request(model, metadata("26.0.0"), epoch + 40000)->sequence == 3);
+    auto wrong = v3::gateway_status_json(status);
+    wrong.pop_back(); wrong += ",\"unexpected\":true}";
+    rejects([&] { parse_gateway_status(wrong); });
+    wrong = v3::gateway_status_json(status);
+    wrong.replace(wrong.find("INSPECTION_RECOMMENDED"), 22, "TIRE_INSPECTION_RECOMMENDED");
+    rejects([&] { parse_gateway_status(wrong); });
+}
+void profile_one_no_model() {
+    Directory directory;
+    Product product(directory.path, metadata("40.0.0"), FunctionalProfile::V1);
+    CHECK(!product.model_state()); CHECK(!product.next_request(epoch));
+    CHECK(!std::filesystem::exists(directory.path / "model-state"));
+    CHECK(!std::filesystem::exists(directory.path / "advisory-state"));
+}
+}
+void product_contract_tests() {
+    adapter_contract(); product_upgrade_and_delivery(); advisory_overflow_and_conflict(); profile_one_no_model();
+}
