@@ -31,10 +31,29 @@ bool integer_path(std::size_t index) {
 }
 class Log {
     std::mutex mutex_;
+    std::mutex capabilities_mutex_;
     std::map<std::string, std::string> previous_;
     std::int64_t minute_{};
     unsigned emitted_{}, suppressed_{};
+    bool analytics_{}, backend_{}, advisory_{};
+    std::string analytics_reason_{"STARTING"}, advisory_reason_{"VISS_OR_GATEWAY_UNAVAILABLE"};
+    void readiness() {
+        const bool requires_advisory = functional_profile(BHS_FUNCTIONAL_PROFILE) == FunctionalProfile::V3;
+        const auto mode = !analytics_ ? "NOT_READY" : (!backend_ || (requires_advisory && !advisory_)) ? "DEGRADED" : "OPERATIONAL";
+        const auto reason = !analytics_ ? analytics_reason_ : requires_advisory && !advisory_ ? advisory_reason_ : "NONE";
+        state("READINESS_CHANGED", mode, reason);
+    }
 public:
+    void analytics(bool ready, const std::string& reason = "NONE") {
+        std::lock_guard<std::mutex> lock(capabilities_mutex_); analytics_ = ready; analytics_reason_ = reason; readiness();
+    }
+    void backend(bool connected) {
+        std::lock_guard<std::mutex> lock(capabilities_mutex_); backend_ = connected;
+        state("BACKEND_SYNC_CHANGED", connected ? "CONNECTED" : "BACKLOG", "NONE"); readiness();
+    }
+    void advisory(bool ready, const std::string& reason = "NONE") {
+        std::lock_guard<std::mutex> lock(capabilities_mutex_); advisory_ = ready; advisory_reason_ = reason; readiness();
+    }
     void state(const std::string& event, const std::string& state, const std::string& reason, const std::string& source_event = "") {
         std::lock_guard<std::mutex> lock(mutex_);
         const auto key = state + ':' + reason;
@@ -97,13 +116,13 @@ void deliver(Product& runtime, std::atomic<bool>& stop, Log& log) {
             HttpResponse response;
             try { response = post_backend(pending->bytes(), stop); } catch (...) {}
             if (runtime.accept(*pending, response)) {
-                attempt = 0; log.state("BACKEND_SYNC_CHANGED", "CONNECTED", "NONE");
+                attempt = 0; log.backend(true);
             } else {
-                log.state("BACKEND_SYNC_CHANGED", "BACKLOG", "NONE");
+                log.backend(false);
                 pause(stop, retry_delay(attempt++, jitter(random), response.retry_after) * 1000LL);
             }
         } catch (...) {
-            log.state("READINESS_CHANGED", "NOT_READY", "STORAGE_UNAVAILABLE");
+            log.analytics(false, "STORAGE_UNAVAILABLE");
             pause(stop, 1000);
         }
     }
@@ -139,7 +158,7 @@ void subscribe(Product& runtime, const ApplicationInputs& inputs, std::atomic<bo
             if (boot_milliseconds() - last_frame.load() > 250) {
                 try {
                     runtime.disconnect();
-                    log.state("READINESS_CHANGED", "NOT_READY", "KUKSA_DATA_UNAVAILABLE");
+                    log.analytics(false, "KUKSA_DATA_UNAVAILABLE");
                 } catch (...) {
                     invalid = true;
                     std::lock_guard<std::mutex> lock(context_mutex);
@@ -189,9 +208,13 @@ void subscribe(Product& runtime, const ApplicationInputs& inputs, std::atomic<bo
         }
         const auto now = boot_milliseconds();
         const auto result = runtime.ingest(values, wall_milliseconds(), now);
-        if (!result.valid) continue;
+        if (!result.valid) {
+            if (!runtime.analytics_ready()) log.analytics(false, "KUKSA_DATA_UNAVAILABLE");
+            if (result.event_completed) log.state("WINDOW_COMPLETED", "INCOMPLETE_SOURCE_GAP", "NONE");
+            continue;
+        }
         last_frame = now;
-        log.state("READINESS_CHANGED", "READY", "NONE");
+        log.analytics(true);
         if (result.event_started) log.state("WINDOW_TRIGGERED", "CAPTURING", "NONE");
         if (result.event_completed) log.state("WINDOW_COMPLETED", "COMPLETED", "NONE");
         if (result.analysis) {
@@ -206,6 +229,7 @@ void subscribe(Product& runtime, const ApplicationInputs& inputs, std::atomic<bo
     stream_context->TryCancel();
     (void)reader->Finish();
     runtime.disconnect();
+    log.analytics(false, "KUKSA_DATA_UNAVAILABLE");
     log.state("KUKSA_SUBSCRIPTION_CHANGED", "NOT_READY", "KUKSA_DATA_UNAVAILABLE");
 }
 // Independent read-only GatewayStatus subscription plus own-endpoint writer.
@@ -220,6 +244,7 @@ void advisory_session(Product& runtime, const ApplicationInputs& inputs, std::at
     auto stub = val::VAL::NewStub(channel);
     std::mutex contexts_mutex;
     std::shared_ptr<grpc::ClientContext> active, stream;
+    std::string attempted_request_id;
     std::atomic<bool> finished{false}, invalid{false};
     std::thread watcher([&] {
         while (!finished) {
@@ -261,6 +286,14 @@ void advisory_session(Product& runtime, const ApplicationInputs& inputs, std::at
         if (!value.has_value() || value.value().value_case() != val::Datapoint::kString) return;
         if (value.value().string().empty()) return;
         if (runtime.observe_gateway(value.value().string(), wall_milliseconds())) {
+            // Reconcile a cached status fact without calling it fresh chain
+            // readiness. Only a reply to an attempted request in this session
+            // proves the capability; command outcome is still independent.
+            const auto observed = parse_gateway_status(value.value().string());
+            {
+                std::lock_guard<std::mutex> lock(contexts_mutex);
+                if (attempted_request_id == observed.request_id) log.advisory(true);
+            }
             const auto evidence = runtime.gateway_state();
             if (evidence) log.state("ADVISORY_GATEWAY_STATUS", *evidence, "NONE");
         }
@@ -281,7 +314,7 @@ void advisory_session(Product& runtime, const ApplicationInputs& inputs, std::at
                 if (invalid || stop || interrupted) break;
                 for (const auto& item : update.updates()) observe(item.entry());
             }
-        } catch (...) { log.state("READINESS_CHANGED", "DEGRADED", "VISS_OR_GATEWAY_UNAVAILABLE"); }
+        } catch (...) { log.advisory(false, "VISS_OR_GATEWAY_UNAVAILABLE"); }
         invalid = true; reader_context->TryCancel(); (void)reader->Finish();
     });
     struct ReaderJoin {
@@ -299,6 +332,9 @@ void advisory_session(Product& runtime, const ApplicationInputs& inputs, std::at
                 auto* update = set.add_updates(); update->add_fields(val::FIELD_ACTUATOR_TARGET);
                 update->mutable_entry()->set_path(brake_health::v3::kRequestPath);
                 update->mutable_entry()->mutable_actuator_target()->set_string(request->canonical_json);
+                {
+                    std::lock_guard<std::mutex> lock(contexts_mutex); attempted_request_id = request->request_id;
+                }
                 const auto set_context = context(); const auto outcome = stub->Set(set_context.get(), set, &result);
                 if (outcome.ok() && !result.has_error() && !result.errors_size()) {
                     runtime.request_written(*request);
@@ -308,12 +344,13 @@ void advisory_session(Product& runtime, const ApplicationInputs& inputs, std::at
                     // An uncertain write keeps the exact persisted request.
                     const bool denied = outcome.error_code() == grpc::StatusCode::PERMISSION_DENIED ||
                         outcome.error_code() == grpc::StatusCode::UNAUTHENTICATED;
-                    log.state("READINESS_CHANGED", "DEGRADED", denied ? "KUKSA_WRITE_UNAUTHORIZED" : "VISS_OR_GATEWAY_UNAVAILABLE");
+                    log.advisory(false, denied ? "KUKSA_WRITE_UNAUTHORIZED" : "VISS_OR_GATEWAY_UNAVAILABLE");
                 }
             }
         }
         pause(stop, 100);
     }
+    log.advisory(false, "VISS_OR_GATEWAY_UNAVAILABLE");
 }
 void advisory(Product& runtime, const ApplicationInputs& inputs, std::atomic<bool>& stop, Log& log) {
     if (runtime.profile() != FunctionalProfile::V3) return;
@@ -321,7 +358,7 @@ void advisory(Product& runtime, const ApplicationInputs& inputs, std::atomic<boo
         try { advisory_session(runtime, inputs, stop, log); }
         catch (const std::exception& error) {
             const auto reason = std::string(error.what()) == "VDP_V3_INCOMPATIBLE" ? "VDP_V3_INCOMPATIBLE" : "VISS_OR_GATEWAY_UNAVAILABLE";
-            log.state("READINESS_CHANGED", "DEGRADED", reason);
+            log.advisory(false, reason);
         }
         pause(stop, 1000);
     }
@@ -350,7 +387,7 @@ int main(int argc, char** argv) {
                 const auto reason = code == "KUKSA_AUTH_UNAVAILABLE" ? "KUKSA_AUTH_UNAVAILABLE" :
                     code == "VDP_INCOMPATIBLE" ? "VDP_INCOMPATIBLE" :
                     code == "IMMUTABLE_IDENTITY_CHANGED" || code == "INPUT_FILE_UNAVAILABLE" ? "STATE_INVALID" : "KUKSA_DATA_UNAVAILABLE";
-                log.state("READINESS_CHANGED", "NOT_READY", reason);
+                log.analytics(false, reason);
             }
             pause(stop, 1000);
         }
@@ -359,7 +396,7 @@ int main(int argc, char** argv) {
         return 0;
     } catch (...) {
         stop = true;
-        log.state("READINESS_CHANGED", "NOT_READY", "STATE_INVALID");
+        log.analytics(false, "STATE_INVALID");
         return 2;
     }
 }

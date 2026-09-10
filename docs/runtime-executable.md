@@ -1,11 +1,14 @@
 <!-- SPDX-FileCopyrightText: 2026 maninblack -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-# Brake v1 executable integration candidate
+# Brake executable integration boundary
 
-Status: bootstrap and host/domain contracts compiled and tested. The real C++
-KUKSA adapter is implemented in source, but **has not yet been compiled or
-executed with gRPC, installed on Linux ARM64, or qualified as deployable**.
+Status: bootstrap and host/domain contracts compiled and tested. The integration
+owner reported a successful real Linux ARM64/gRPC v1 build at
+`81e6afc1563239c8d75fb7183a50546cde7ddc58`. Later source changes still need
+their product build. **No installed Service or deployable qualification is
+claimed.** The current profile composition is documented in
+[runtime profiles](runtime-profiles.md).
 The unchanged diagnostic scaffold must not be used for a Brake product upload.
 
 ## Process and transport boundary
@@ -23,7 +26,8 @@ The unchanged diagnostic scaffold must not be used for a Brake product upload.
   backward wall-clock jump extending a lease. A terminal rejection removes
   the token and leaves analytics waiting, without a process-restart loop.
 - `/usr/bin/brake-health-service` performs TLS-verified `kuksa.val.v1.Get`
-  metadata inspection and `Subscribe` on exactly the six Brake v1 input paths.
+  metadata inspection and `Subscribe` on the six Brake v1 input paths or the
+  twelve accepted v2/v3 model paths selected explicitly at build time.
   The endpoint is `Server:55555`, supplied by the existing `kuksa` resource's
   host mapping. There is no insecure channel or provider-credential fallback.
 - KUKSA 0.5.0 authenticates the metadata header `authorization: Bearer <JWT>`;
@@ -38,6 +42,11 @@ The unchanged diagnostic scaffold must not be used for a Brake product upload.
   isolated Brake endpoint. Backend unavailability does not gate acquisition;
   retry preserves bytes, valid matching durable ACK permits deletion, and
   permanent conflict quarantines retained evidence.
+  The same sender drains v2/v3 canonical products. Its source-defined endpoint
+  is `http://10.0.0.1:18091/api/v1/brake/messages`, exactly D4-020's isolated
+  local-demo endpoint; no endpoint flag/environment override or backend bearer
+  credential is introduced. The package still needs the supported least-scope
+  outbound connection policy proven on the pinned native runtime.
 
 ## Growing-window delivery
 
@@ -168,20 +177,21 @@ Pinned inputs match the recorded Factory C++ versions:
 | KUKSA databroker 0.5.0 VAL schemas | `30e5c13abc496d0b39aaa6c25acebb088b9902e3` |
 
 KUKSA schema contents are also SHA-256 checked in CMake. External generated
-headers are produced in the build directory and are not committed. Linux
-ARM64 ELF architecture, libc/loader compatibility, complete link closure,
-transitive license notices and actual gRPC compilation are remaining build
-evidence, not implied by this input list. Do not substitute incompatible
+headers are produced in the build directory and are not committed. Every
+candidate must retain its own ARM64 ELF, link closure, license and actual gRPC
+build evidence; a prior commit's successful build does not qualify later
+source. Guest libc/loader compatibility remains a deployment gate, not implied
+by this input list. Do not substitute incompatible
 distribution gRPC libraries merely because their package names match.
 
 ## Verification scope and remaining product work
 
 Four host CTest targets pass: existing v1/v2 domains, sixteen runtime protocol/
-durability groups, and five application input/token/clock/provenance groups.
+durability groups, and thirteen application/profile/input/recovery groups.
 `brake-health-bootstrap` compiles with warnings-as-errors. Tests use isolated
 fixtures only; no runtime fixture records are installed or sent to a live
 backend. There is no claim of bootstrap/child/KAC socket E2E or TLS gRPC fixture
-E2E yet, because the product toolchain is unavailable in this lane.
+E2E yet; real build and live execution remain owned by Demo Control.
 
 Before SOTA: close the live binding above, compile/run the actual adapter,
 qualify renewal/rejection/reconnect with an isolated KAC+TLS fixture, assemble
@@ -192,6 +202,7 @@ thread and memory use. Growing-window publication is implemented and locally
 tested; real KUKSA-to-backend/dashboards verification is still outstanding.
 Capacity/quarantine readiness and aggregated operational-fact reporting need
 separate executable qualification; local retention tests do not establish
-those operator-visible states. v2/v3 runtime and advisory composition are
-separate subsequent work; the [v2/v3 wiring audit](runtime-v2-v3-audit.md)
-records exact missing runtime calls and the release/profile schema conflict.
+those operator-visible states. v2/v3 runtime and advisory composition are now
+implemented in the [current product profiles](runtime-profiles.md). The
+[earlier wiring audit](runtime-v2-v3-audit.md) is historical gap evidence, not
+a description of the current source.

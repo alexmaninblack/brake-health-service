@@ -22,6 +22,7 @@ docker buildx build
   --target export
   --build-arg SOURCE_REVISION=<40-character source commit>
   --build-arg SOURCE_DATE_EPOCH=<positive commit Unix timestamp>
+  --build-arg BHS_FUNCTIONAL_PROFILE=<v1|v2|v3>
   --build-arg BUILD_JOBS=4
   --output type=local,dest=<owned-output-directory>
   <brake-health-service>
@@ -33,6 +34,8 @@ directory belongs to that build attempt; Demo Control retains its outer
 `build.json` and never merges a failed export into an accepted candidate.
 The `.dockerignore` allowlist excludes Git, local state, keys, identities,
 artifacts and deployment credentials from the build context.
+The functional profile is explicit and independent of the release version;
+Demo Control catalogs each source/profile pair separately.
 
 The first preparation build compiles dependency layers. Later source changes
 reuse those immutable Docker cache layers. There is no dependency rebuild,
@@ -112,6 +115,7 @@ does not interpret an `arm64` directory name as architecture evidence.
 | `sourceRevision`, `sourceDateEpoch` | Exact clean-source commit and timestamp supplied by Demo Control |
 | `architecture`, `os` | `arm64`, `linux` |
 | `productTarget` | `BHS_BUILD_KUKSA_RUNTIME=ON` |
+| `functionalProfile` | Explicit `v1`, `v2` or `v3`, never inferred from a release number |
 | `binaries` | Exactly two entries: `path` relative to output, `sha256`, `size`, `interpreter`, `needed`, `glibcVersions` |
 | `tests` | `ctest: passed`, `count: 4`, report path and `reportSha256`; missing/failed/skipped suites refuse export |
 | `dependencies` | Verified git source pins and OpenSSL archive digest |
@@ -119,8 +123,8 @@ does not interpret an `arm64` directory name as architecture evidence.
 | `baseImage`, `aptSnapshot` | Immutable build environment references |
 | `liveQualified` | Always `false`; compilation is not live qualification |
 
-The four current CTest targets test the v1/v2 domains and v1 runtime/application
-boundaries. The actual gRPC executable is a mandatory build target, but these
+The four current CTest targets test the v1/v2 domains, runtime protocol/delivery
+and composed v1/v2/v3 application boundaries. The actual gRPC executable is a mandatory build target, but these
 tests do not claim a KAC/TLS subscription or live service E2E. Those proofs must
 follow through Demo Control with the approved public-trust/metadata binding.
 

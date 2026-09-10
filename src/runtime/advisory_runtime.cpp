@@ -110,44 +110,96 @@ AdvisoryRuntime::AdvisoryRuntime(std::filesystem::path state_root, std::filesyst
     }
     recover(); (void)load(); (void)outbox_usage();
 }
-Json AdvisoryRuntime::load() const {
-    const auto bytes = read(state_root_ / "state.json", 65536);
+namespace {
+Json validate_state(const std::string& bytes, const std::string& epoch) {
     auto j = parse_json(bytes, 65536);
     if (encode_json(j) != bytes || j.object().size() != 4 || j.at("schemaVersion").integer() != 1 ||
-        j.at("producerEpoch").string() != epoch_ || !v3::canonical_uuid(epoch_, '4') ||
+        j.at("producerEpoch").string() != epoch || !v3::canonical_uuid(epoch, '4') ||
         j.at("nextSequence").integer() <= 0 || requests(j).size() > 32) throw std::runtime_error("ADVISORY_STATE_INVALID");
     std::uint64_t sequence = 0;
     for (const auto& binding : requests(j)) {
         if (binding.object().size() != 4) throw std::runtime_error("ADVISORY_STATE_INVALID");
         const auto r = request(binding.at("request"));
-        if (r.producer_epoch != epoch_ || r.sequence <= sequence || r.sequence >= static_cast<std::uint64_t>(j.at("nextSequence").integer()))
+        if (r.producer_epoch != epoch || r.sequence <= sequence || r.sequence >= static_cast<std::uint64_t>(j.at("nextSequence").integer()))
             throw std::runtime_error("ADVISORY_SEQUENCE_INVALID");
         sequence = r.sequence;
-        (void)metadata(binding.at("metadata")); (void)binding.at("written").boolean();
+        if (metadata(binding.at("metadata")).service_version != r.service_version) throw std::runtime_error("ADVISORY_PROVENANCE_INVALID");
+        (void)binding.at("written").boolean();
         if (binding.at("statuses").object().size() > 6) throw std::runtime_error("ADVISORY_STATE_INVALID");
         for (const auto& item : binding.at("statuses").object()) {
             const auto status = parse_gateway_status(encode_json(item.second.at("status")));
             if (item.second.object().size() != 2 || !fact_id(r.request_id + '.' + item.first) ||
-                status.request_id != r.request_id || status.producer_epoch != epoch_ || status.sequence != r.sequence ||
+                status.request_id != r.request_id || status.producer_epoch != epoch || status.sequence != r.sequence ||
                 item.first != v3::gateway_state_name(status.state)) throw std::runtime_error("ADVISORY_STATE_INVALID");
             (void)item.second.at("admitted").boolean();
         }
     }
     return j;
 }
+void verify_fact(const std::string& bytes, const std::string& id) {
+    const auto j = parse_json(bytes, 16384);
+    if (j.object().size() != 16 || j.at("schemaVersion").integer() != 1 ||
+        j.at("messageType").string() != "BRAKE_ADVISORY_FACT" || j.at("contractVersion").string() != "1.0.0" ||
+        j.at("requestId").string() + '.' + j.at("gatewayState").string() != id) throw std::runtime_error("ADVISORY_FACT_INVALID");
+    const auto& c = j.at("content");
+    if (c.object().size() != 11 || c.at("operation").string() != "SET" ||
+        c.at("reasonCode").string() != "PREDICTED_BRAKE_DEGRADATION" || c.at("recommendation").string() != "INSPECTION_RECOMMENDED" ||
+        j.at("sequence").integer() <= 0) throw std::runtime_error("ADVISORY_FACT_INVALID");
+    v3::DeploymentMetadata m;
+    m.unit_system_uid = j.at("unitSystemUid").string();
+    const auto role = j.at("unitRole").string();
+    if (role != "VALIDATION" && role != "PRODUCTION") throw std::runtime_error("ADVISORY_FACT_INVALID");
+    m.unit_role = role == "VALIDATION" ? v2::UnitRole::Validation : v2::UnitRole::Production;
+    m.service_version = j.at("serviceVersion").string(); m.service_artifact_sha256 = j.at("serviceArtifactSha256").string();
+    m.vdp_contract_version = j.at("vdpContractVersion").string(); m.vdp_contract_sha256 = j.at("vdpContractSha256").string();
+    const auto r = v3::build_set_request(j.at("producerEpoch").string(), static_cast<std::uint64_t>(j.at("sequence").integer()),
+        c.at("decisionId").string(), c.at("issuedAt").string(), m.service_version);
+    const auto status = parse_gateway_status(encode_json(Json{Json::Object{{"schemaVersion", Json{std::int64_t{1}}},
+        {"requestId", j.at("requestId")}, {"producerEpoch", j.at("producerEpoch")}, {"sequence", j.at("sequence")},
+        {"state", j.at("gatewayState")}, {"reason", c.at("gatewayReason")}, {"gatewayObservedAt", c.at("gatewayObservedAt")},
+        {"activeRecommendation", c.at("activeRecommendation")}, {"activeReasonCode", c.at("activeReasonCode")}, {"activeUntil", c.at("activeUntil")}}}));
+    if (v3::build_advisory_fact(m, r, status, j.at("recordedAt").string()).canonical_json != bytes)
+        throw std::runtime_error("ADVISORY_FACT_INVALID");
+}
+}
+Json AdvisoryRuntime::load() const { return validate_state(read(state_root_ / "state.json", 65536), epoch_); }
 void AdvisoryRuntime::recover() {
     const auto path = state_root_ / "journal.json";
     if (!std::filesystem::exists(path)) return;
-    const auto journal = parse_json(read(path, 163840), 163840);
-    if (journal.object().size() != 4 || journal.at("schemaVersion").integer() != 1) throw std::runtime_error("ADVISORY_JOURNAL_INVALID");
+    const auto journal = parse_json(read(path, 327680), 327680);
+    if (journal.object().size() != 7 || journal.at("schemaVersion").integer() != 1) throw std::runtime_error("ADVISORY_JOURNAL_INVALID");
     const auto current = read(state_root_ / "state.json", 65536);
     const auto before = journal.at("before").string(), after = journal.at("after").string();
     if (current != before && current != after) throw std::runtime_error("ADVISORY_JOURNAL_CONFLICT");
-    if (before.size() > 65536 || after.size() > 65536) throw std::runtime_error("ADVISORY_JOURNAL_INVALID");
-    if (current == before) write(state_root_ / "state.json", after);
+    if (before.size() > 65536 || after.size() > 65536 ||
+        v1::sha256_hex(before) != journal.at("beforeSha256").string() ||
+        v1::sha256_hex(after) != journal.at("afterSha256").string() ||
+        v1::sha256_hex(encode_json(journal.at("fact"))) != journal.at("factSha256").string())
+        throw std::runtime_error("ADVISORY_JOURNAL_INVALID");
+    (void)validate_state(before, epoch_);
+    const auto next = validate_state(after, epoch_);
+    std::optional<AdvisoryDelivery> publish;
     if (!std::holds_alternative<std::nullptr_t>(journal.at("fact").value)) {
         const auto& fact = journal.at("fact"); const auto id = fact.at("id").string(), bytes = fact.at("bytes").string();
         if (fact.object().size() != 2 || !fact_id(id) || bytes.size() > 16384) throw std::runtime_error("ADVISORY_JOURNAL_INVALID");
+        verify_fact(bytes, id);
+        const auto parsed = parse_json(bytes, 16384);
+        bool bound = false;
+        for (const auto& item : requests(next)) {
+            const auto r = request(item.at("request"));
+            const auto state = parsed.at("gatewayState").string();
+            if (r.request_id != parsed.at("requestId").string() || !item.at("statuses").object().count(state)) continue;
+            const auto& binding = item.at("statuses").at(state);
+            const auto status = parse_gateway_status(encode_json(binding.at("status")));
+            bound = binding.at("admitted").boolean() &&
+                v3::build_advisory_fact(metadata(item.at("metadata")), r, status, parsed.at("recordedAt").string()).canonical_json == bytes;
+        }
+        if (!bound) throw std::runtime_error("ADVISORY_JOURNAL_FACT_UNBOUND");
+        publish = AdvisoryDelivery{id, bytes};
+    }
+    if (current == before) write(state_root_ / "state.json", after);
+    if (publish) {
+        const auto& id = publish->id; const auto& bytes = publish->bytes;
         const auto target = outbox_root_ / id;
         if (std::filesystem::exists(target)) {
             if (read(target, 16384) != bytes) throw std::runtime_error("ADVISORY_FACT_CONFLICT");
@@ -162,7 +214,9 @@ void AdvisoryRuntime::commit(const Json& before, const Json& after, const std::o
     Json payload{nullptr};
     if (fact) payload = Json{Json::Object{{"id", Json{fact->id}}, {"bytes", Json{fact->bytes}}}};
     write(state_root_ / "journal.json", encode_json(Json{Json::Object{{"schemaVersion", Json{std::int64_t{1}}},
-        {"before", Json{encode_json(before)}}, {"after", Json{encoded}}, {"fact", payload}}}));
+        {"before", Json{encode_json(before)}}, {"after", Json{encoded}}, {"fact", payload},
+        {"beforeSha256", Json{v1::sha256_hex(encode_json(before))}}, {"afterSha256", Json{v1::sha256_hex(encoded)}},
+        {"factSha256", Json{v1::sha256_hex(encode_json(payload))}}}}));
     recover();
 }
 std::optional<v3::AdvisoryRequest> AdvisoryRuntime::next_request(const v2::ModelState& model,
@@ -237,11 +291,7 @@ std::pair<std::size_t, std::size_t> AdvisoryRuntime::outbox_usage() const {
             (void)read(entry.path(), 32); continue;
         }
         if (!fact_id(name)) throw std::runtime_error("ADVISORY_OUTBOX_INVALID");
-        const auto encoded = read(entry.path(), 16384); const auto fact = parse_json(encoded, 16384);
-        if (fact.at("requestId").string() + '.' + fact.at("gatewayState").string() != name ||
-            fact.at("messageType").string() != "BRAKE_ADVISORY_FACT" ||
-            v1::sha256_hex(encode_json(fact.at("content"))) != fact.at("contentSha256").string())
-            throw std::runtime_error("ADVISORY_OUTBOX_INVALID");
+        const auto encoded = read(entry.path(), 16384); verify_fact(encoded, name);
         ++count; bytes += encoded.size();
     }
     if (count > 64 || bytes > 1048576) throw std::runtime_error("ADVISORY_OUTBOX_BOUND");

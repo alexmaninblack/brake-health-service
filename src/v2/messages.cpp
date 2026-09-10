@@ -175,10 +175,14 @@ bool bounded_identifier(const std::string& value) {
 }
 
 bool semantic_version(const std::string& value) {
+    if (value.empty() || value.size() > 32) return false;
     int dots = 0;
     bool digit = false;
+    bool leading_zero = false;
     for (char character : value) {
         if (character >= '0' && character <= '9') {
+            if (digit && leading_zero) return false;
+            if (!digit) leading_zero = character == '0';
             digit = true;
         } else if (character == '.' && digit && dots < 2) {
             ++dots;

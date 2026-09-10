@@ -98,7 +98,9 @@ void atomic_private_file(const std::filesystem::path& path, const std::string& b
     if (mode != 0400 && mode != 0600) throw std::invalid_argument("PRIVATE_FILE_MODE_INVALID");
     struct stat info{};
     if (::lstat(path.parent_path().c_str(), &info) != 0 || !S_ISDIR(info.st_mode) || info.st_uid != ::geteuid() || (info.st_mode & 0777) != 0700) throw std::runtime_error("TOKEN_DIRECTORY_INVALID");
-    const auto temporary = path.string() + ".next-" + std::to_string(::getpid());
+    static std::atomic<std::uint64_t> sequence{0};
+    const auto temporary = (path.parent_path() / ("." + path.filename().string() + ".next-" +
+        std::to_string(::getpid()) + '-' + std::to_string(sequence.fetch_add(1)))).string();
     Fd file{::open(temporary.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0600)};
     if (file.value < 0) throw std::runtime_error("TOKEN_WRITE_FAILED");
     try {

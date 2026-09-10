@@ -131,6 +131,9 @@ void product_upgrade_and_delivery() {
         const auto refreshed = product.next_request(epoch + 30000); CHECK(refreshed);
         CHECK(refreshed->sequence == 2 && refreshed->request_id != request.request_id && refreshed->service_version == "23.0.0");
         CHECK(refreshed->decision_id == request.decision_id);
+        CHECK(!product.gateway_state());
+        CHECK(product.observe_gateway(v3::gateway_status_json(status), epoch + 30010));
+        CHECK(!product.gateway_state()); // Old same-epoch evidence cannot replace current request status.
         product.request_written(*refreshed); CHECK(!product.next_request(epoch + 31000));
         product.stop(); CHECK(v2::state_json(*product.model_state()) == v2::state_json(initial));
     }
@@ -176,7 +179,119 @@ void profile_one_no_model() {
     CHECK(!std::filesystem::exists(directory.path / "model-state"));
     CHECK(!std::filesystem::exists(directory.path / "advisory-state"));
 }
+v2::ModelState active_model() {
+    auto model = v2::initial_state(random_uuid());
+    model.wear_index = 62; model.condition_score = 38; model.condition_band = v2::ConditionBand::InspectionRecommended;
+    model.last_assessment_id = "55e7c2c5-af19-5a79-91d5-8a09c7a6e5d4";
+    model.last_applied_source_event_id = "00000000-0000-4000-8000-000000000001";
+    model.recent_source_event_ids.push_back(*model.last_applied_source_event_id); model.generation = 1;
+    return model;
+}
+Json journal(const std::string& before, const std::string& after, const AdvisoryDelivery& delivery) {
+    const Json fact{Json::Object{{"id", Json{delivery.id}}, {"bytes", Json{delivery.bytes}}}};
+    return Json{Json::Object{{"schemaVersion", Json{std::int64_t{1}}}, {"before", Json{before}}, {"after", Json{after}},
+        {"fact", fact}, {"beforeSha256", Json{v1::sha256_hex(before)}}, {"afterSha256", Json{v1::sha256_hex(after)}},
+        {"factSha256", Json{v1::sha256_hex(encode_json(fact))}}}};
+}
+void advisory_journal_recovery() {
+    // Three actual persistent crash frontiers: only journal, after state, and
+    // after fact. The test fixture restores those on-disk frontiers; runtime
+    // recovery itself is the same code used by the product executable.
+    for (int stage = 0; stage < 3; ++stage) {
+        Directory directory; const auto state = directory.path / "state", outbox = directory.path / "outbox";
+        const auto model = active_model();
+        AdvisoryRuntime original(state, outbox, model);
+        const auto request = original.next_request(model, metadata("27.0.0"), epoch); CHECK(request);
+        const auto before = read_file(state / "state.json", 65536);
+        const auto status = v3::gateway_status_json(applied(*request, epoch + 10));
+        CHECK(original.observe(status, epoch + 20, 0, 0));
+        const auto delivery = original.next_message(); CHECK(delivery);
+        const auto after = read_file(state / "state.json", 65536);
+        if (stage < 2) std::filesystem::remove(outbox / delivery->id);
+        if (stage == 0) atomic_private_file(state / "state.json", before, 0600);
+        atomic_private_file(state / "journal.json", encode_json(journal(before, after, *delivery)), 0600);
+        AdvisoryRuntime recovered(state, outbox, model);
+        CHECK(!std::filesystem::exists(state / "journal.json"));
+        CHECK(read_file(state / "state.json", 65536) == after);
+        CHECK(recovered.next_message()->bytes == delivery->bytes);
+        CHECK(recovered.observe(status, epoch + 30, 0, 0)); CHECK(recovered.outbox_usage().first == 1);
+        CHECK(recovered.accept(*delivery, {201, ack(delivery->bytes), 0}));
+        AdvisoryRuntime repeated(state, outbox, model);
+        CHECK(!repeated.next_message()); CHECK(repeated.observe(status, epoch + 40, 0, 0)); CHECK(!repeated.next_message());
+        CHECK(repeated.next_request(model, metadata("28.0.0"), epoch + 20000)->sequence == 2);
+    }
+}
+void advisory_corrupt_journal_preserved() {
+    Directory directory; const auto state = directory.path / "state", outbox = directory.path / "outbox";
+    const auto model = active_model();
+    AdvisoryRuntime original(state, outbox, model);
+    const auto request = original.next_request(model, metadata("27.0.0"), epoch); CHECK(request);
+    const auto before = read_file(state / "state.json", 65536);
+    CHECK(original.observe(v3::gateway_status_json(applied(*request, epoch + 10)), epoch + 20, 0, 0));
+    const auto delivery = original.next_message(); CHECK(delivery);
+    const auto after = read_file(state / "state.json", 65536);
+    std::filesystem::remove(outbox / delivery->id);
+    atomic_private_file(state / "state.json", before, 0600);
+    auto value = journal(before, after, *delivery);
+    std::get<Json::Object>(value.value)["afterSha256"] = Json{std::string(64, '0')};
+    atomic_private_file(state / "journal.json", encode_json(value), 0600);
+    rejects([&] { AdvisoryRuntime invalid(state, outbox, model); });
+    CHECK(read_file(state / "state.json", 65536) == before); CHECK(std::filesystem::is_empty(outbox));
+    CHECK(std::filesystem::exists(state / "journal.json"));
+    // Even a self-consistent hash cannot authorize an unknown state schema.
+    auto changed = parse_json(after); std::get<Json::Object>(changed.value)["schemaVersion"] = Json{std::int64_t{2}};
+    value = journal(before, encode_json(changed), *delivery);
+    atomic_private_file(state / "journal.json", encode_json(value), 0600);
+    rejects([&] { AdvisoryRuntime invalid(state, outbox, model); });
+    CHECK(read_file(state / "state.json", 65536) == before); CHECK(std::filesystem::is_empty(outbox));
+}
+void invalid_product_frame_ends_capture() {
+    for (const bool missing : {true, false}) {
+        Directory directory;
+        Product product(directory.path, metadata("32.0.0"), FunctionalProfile::V2);
+        for (int i = 0; i < 150; ++i) {
+            const auto time = i * 1000 / 30;
+            CHECK(product.ingest(sample(time), epoch + time + 20, time).valid);
+        }
+        auto bad = sample(5000);
+        if (missing) bad[11].valid = false; else bad[11].value = std::numeric_limits<double>::quiet_NaN();
+        const auto observation = product.ingest(bad, epoch + 5020, 5000);
+        CHECK(!observation.valid && observation.event_completed);
+        CHECK(!product.analytics_ready()); CHECK(product.model_state()->generation == 0);
+        CHECK(!product.next_message());
+        product.stop(); CHECK(product.model_state()->generation == 0);
+    }
+}
+void model_capture_retrigger_and_limit() {
+    for (const bool truncate : {false, true}) {
+        Directory directory;
+        Product product(directory.path, metadata("34.0.0"), FunctionalProfile::V2);
+        unsigned completed = 0; std::optional<v2::ProcessResult> result;
+        const int frames = truncate ? 540 : 360;
+        for (int i = 0; i < frames; ++i) {
+            const auto time = i * 1000 / 30;
+            auto input = sample(time);
+            const bool braking = time >= 3200 && (truncate || time < 4800 || (time >= 5800 && time < 7200));
+            input[0].value = 42; input[1].value = braking ? -8 : 0; input[2].value = braking ? 90 : 0;
+            for (std::size_t wheel = 0; wheel < 4; ++wheel) { input[wheel + 4].value = 420; input[wheel + 8].value = 42; }
+            const auto observed = product.ingest(input, epoch + time + 20, time); CHECK(observed.valid);
+            if (observed.analysis) { ++completed; result = observed.analysis; }
+        }
+        CHECK(result && completed == 1);
+        if (truncate) {
+            CHECK(result->status == v2::ProcessStatus::SkippedInputQuality);
+            CHECK(result->skip_reason == v2::SkipReason::EpisodeNotComplete);
+            CHECK(product.model_state()->generation == 0 && !product.next_message());
+        } else {
+            CHECK(result->status == v2::ProcessStatus::Produced);
+            CHECK(product.model_state()->generation == 1);
+        }
+    }
+}
 }
 void product_contract_tests() {
     adapter_contract(); product_upgrade_and_delivery(); advisory_overflow_and_conflict(); profile_one_no_model();
+    advisory_journal_recovery(); advisory_corrupt_journal_preserved();
+    invalid_product_frame_ends_capture();
+    model_capture_retrigger_and_limit();
 }

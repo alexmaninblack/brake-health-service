@@ -3,12 +3,17 @@
 
 # Brake v2/v3 runtime wiring audit
 
+Historical checkpoint: `b6ba7a257271070b0a668b9e726d45e44b677e29`.
+The findings below describe that checkpoint, not the current implementation.
+They were subsequently addressed by the explicit runtime profile work in
+[runtime-profiles.md](runtime-profiles.md); live qualification remains separate.
+
 Scope: accepted Studio P5/P6, D4-016.1 through D4-016.5 and D4-017. This is a
 source audit plus bounded host corrections, not a deployable-v2/v3 or E2E claim.
 The preceding growing-v1 checkpoint remains independently available at
 `4434082b25dfaf7e53462c7ff22986cb7b500659`.
 
-## Actual state
+## State at the audited checkpoint
 
 | Boundary | Source evidence | Required next wiring |
 | --- | --- | --- |

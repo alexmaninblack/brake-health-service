@@ -38,11 +38,23 @@ std::pair<std::size_t, std::size_t> Product::derived_usage() const {
 ProductObservation Product::ingest(const std::vector<Signal>& values, std::int64_t wall, std::int64_t mono) {
     std::lock_guard<std::mutex> lock(mutex_);
     ProductObservation result;
+    if (values.size() != (profile_ == FunctionalProfile::V1 ? 6U : 12U)) throw std::invalid_argument("SIGNAL_COUNT_INVALID");
+    const auto source = values.front().epoch_ms;
+    const bool coherent = std::all_of(values.begin(), values.end(), [source](const auto& value) { return value.epoch_ms == source; });
+    const auto source_gap = [&] {
+        legacy_.disconnect();
+        result.event_completed = capture_.abort(v2::TerminalState::IncompleteSourceGap).has_value();
+        ready_ = false;
+    };
+    if (std::any_of(values.begin(), values.end(), [](const auto& value) { return !value.valid; }) ||
+        (coherent && (source < previous_epoch_ || source > wall || wall - source > 250))) {
+        source_gap(); return result;
+    }
     if (profile_ == FunctionalProfile::V1) {
         if (values.size() != 6) throw std::invalid_argument("SIGNAL_COUNT_INVALID");
         std::array<Signal, 6> input; std::copy(values.begin(), values.end(), input.begin());
         const auto frame = complete_frame(input, wall, mono, previous_epoch_);
-        if (!frame) return result;
+        if (!frame) { if (coherent && source > previous_epoch_) source_gap(); return result; }
         previous_epoch_ = frame->source_epoch_ms;
         const auto observation = legacy_.ingest(*frame);
         ready_ = result.valid = observation.validation.valid;
@@ -51,7 +63,7 @@ ProductObservation Product::ingest(const std::vector<Signal>& values, std::int64
         if (values.size() != 12) throw std::invalid_argument("SIGNAL_COUNT_INVALID");
         std::array<Signal, 12> input; std::copy(values.begin(), values.end(), input.begin());
         const auto frame = complete_model_frame(input, wall, mono, previous_epoch_);
-        if (!frame || !model_->ready()) return result;
+        if (!frame || !model_->ready()) { if (coherent && source > previous_epoch_) source_gap(); return result; }
         previous_epoch_ = frame->source_epoch_ms;
         const auto was_capturing = capture_.capturing();
         const auto episode = capture_.ingest(*frame);

@@ -87,5 +87,5 @@ void provenance_change() {
 int main() {
     try { closed_metadata(); arguments(); lease_deadlines(); token_delivery(); provenance_change(); product_contract_tests(); }
     catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
-    std::cout << "9 application/product contract groups passed\n";
+    std::cout << "13 application/product contract groups passed\n";
 }

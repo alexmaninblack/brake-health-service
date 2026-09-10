@@ -8,26 +8,28 @@ vehicle telemetry for on-board brake-health analysis.
 
 ## Status
 
-This repository contains an R-3 diagnostic ARM64 Aos service scaffold plus
-source-complete, dependency-free C++17 Brake Health v1 and v2 domain cores.
+This repository contains C++17 Brake Health domain cores and an explicit
+v1/v2/v3 product executable, alongside a historical R-3 diagnostic scaffold.
 The v1 core implements the accepted six-signal validation, deterministic event
 window, canonical logical messages and bounded local spool. The v2 core accepts
 an already completed fixed-point 12-signal episode, runs the accepted synthetic
 condition model, emits closed canonical assessment/band-change messages and
 persists crash-safe exactly-once state plus a bounded derived-message outbox.
 
-A bounded v1 runtime library now composes the domain engine and durable spool,
-with coherent-frame admission, KAC envelope validation, bounded POSIX transport
-primitives and exact backend receipt handling. See the
-[runtime increment](docs/runtime-increment.md) and the subsequent
-[executable candidate and deployment gates](docs/runtime-executable.md).
-The credential bootstrap compiles on the host. The real TLS KUKSA Get/Subscribe
-and asynchronous delivery executable is implemented behind an explicit product
-build target requiring pinned C++ dependencies; that target has not yet been
-compiled or exercised in this increment.
-The packaged scaffold executable remains unchanged: it contains none of this
-runtime and no KUKSA subscription or bootstrap process. Source completion does
-not claim a composed, deployable, calibrated or qualified Brake Health Service.
+The [product runtime profiles](docs/runtime-profiles.md) compose live signal
+admission, v1 growing windows, v2 durable model processing and v3 correlated
+advisory requests/facts. Release numbers and functional profiles are separate.
+The credential bootstrap uses the accepted KAC exchange; the child uses
+authenticated TLS KUKSA and independent durable backend delivery.
+
+Demo Control's integration owner reported a successful real Linux ARM64/gRPC
+v1 build at source `81e6afc1563239c8d75fb7183a50546cde7ddc58`.
+Subsequent recovery/readiness corrections require their own product build.
+Neither source tests nor ELF compilation prove Service-identity permissions,
+node-rootfs compatibility, transport, resource quotas or deployment success.
+See the [explicit deployment gates](docs/runtime-executable.md).
+The historical packaged scaffold remains diagnostic-only and must not be
+signed or uploaded as the product executable.
 
 The [Linux ARM64 product build recipe](docs/product-build.md) is ready for
 Demo Control to invoke. Its export requires the actual gRPC executable,
@@ -53,12 +55,12 @@ rollbackable release metadata without splitting those versions into separate
 products.
 
 The v1 and v2 domain libraries accept no simulator truth, control mode,
-credentials or network input. A future runtime adapter will use the platform-
+credentials or network input. The runtime adapter uses the platform-
 owned fixed-resource KAC exchange: the Service supplies only its instance-
 bound `AOS_SECRET`, while resource `kuksa` and all authority remain implicit
 and derived from current Aos IAM state.
 
-## Current Scaffold
+## Historical Diagnostic Scaffold
 
 The scaffold declares:
 
@@ -68,14 +70,9 @@ The scaffold declares:
   storage, file, and process limits;
 - no Aos layer dependency and no CARLA, VISS, provider, or VM integration.
 
-Build an unsigned local staging directory with:
-
-```text
-python3 tools/build_scaffold.py --output build/aos-service-scaffold
-```
-
-The output deliberately excludes signing and TLS credentials. Run all local
-gates with:
+Its packaging library also owns the real product export, invoked through
+Demo Control as described in the product build contract. Do not substitute
+the diagnostic staging path for product preparation. Run source-only gates with:
 
 ```text
 python3 -m unittest discover -s tests -p 'test_*.py'
