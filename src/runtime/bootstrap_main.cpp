@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 maninblack
 // SPDX-License-Identifier: Apache-2.0
 #include "brake_health/runtime/application.hpp"
+#include "brake_health/runtime/demo_no_telemetry.hpp"
 #include <cerrno>
 #include <csignal>
 #include <cstdlib>
@@ -42,9 +43,12 @@ int main(int argc, char** argv) {
     std::atomic<bool> stop{false};
     pid_t child = -1;
     try {
+        const bool demo_no_telemetry = argc > 1 && std::string(argv[argc - 1]) == "--demo-no-telemetry";
+        if (demo_no_telemetry) --argc;
         auto inputs = parse_arguments(argc, argv);
         initialize_service_inputs(inputs);
-        (void)runtime_metadata(inputs, read_file(inputs.metadata_file, 8192));
+        const auto metadata = runtime_metadata(inputs, read_file(inputs.metadata_file, 8192));
+        if (demo_no_telemetry) return run_demo_no_telemetry(metadata);
         (void)read_file(inputs.ca_file, 65536);
         const char* environment_secret = std::getenv("AOS_SECRET");
         if (!environment_secret || !*environment_secret) throw std::runtime_error("AOS_SECRET_UNAVAILABLE");

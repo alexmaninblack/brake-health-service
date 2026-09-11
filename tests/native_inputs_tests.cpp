@@ -1,6 +1,10 @@
 // SPDX-FileCopyrightText: 2026 maninblack
 // SPDX-License-Identifier: Apache-2.0
 #include "brake_health/runtime/application.hpp"
+#include "brake_health/runtime/demo_no_telemetry.hpp"
+#include <poll.h>
+#include <sys/wait.h>
+#include <unistd.h>
 #include <iostream>
 #include <stdexcept>
 using namespace brake_health;
@@ -16,6 +20,33 @@ int main() {
   const auto public_input=std::string(R"({"schemaVersion":2,"unitSystemUid":"fixture-unit","unitRole":"validation","vdpContractVersion":"3.0.0","vdpContractSha256":")")+std::string(64,'b')+"\"}";
   const auto m=parse_metadata(public_input,native);
   CHECK(m.service_version=="18.0.0" && m.service_artifact_sha256.empty());
+  // Explicit lifecycle mode stays alive without AOS_SECRET and shuts down
+  // cleanly for a native update; Production is rejected before starting.
+  auto production=m; production.unit_role=brake_health::v1::UnitRole::Production;
+  rejects([&]{run_demo_no_telemetry(production);});
+  for (const int stop_signal : {SIGTERM, SIGINT}) {
+   int output[2]; CHECK(::pipe(output)==0);
+   const auto pid=::fork(); CHECK(pid>=0);
+   if(pid==0) {
+    ::close(output[0]); ::dup2(output[1],STDOUT_FILENO); ::close(output[1]);
+    ::unsetenv("AOS_SECRET"); ::unsetenv("KUKSA_TOKEN_FILE");
+    ::_exit(run_demo_no_telemetry(m));
+   }
+   ::close(output[1]);
+   pollfd ready{output[0],POLLIN,0};
+   const int observed=::poll(&ready,1,2000);
+   char bytes[512]{}; const auto count=observed>0 ? ::read(output[0],bytes,sizeof(bytes)) : 0;
+   int status=0; const bool alive=::waitpid(pid,&status,WNOHANG)==0;
+   ::kill(pid,stop_signal);
+   if(observed<=0) ::kill(pid,SIGKILL);
+   ::waitpid(pid,&status,0); ::close(output[0]);
+   CHECK(observed>0 && count>0 && alive);
+   CHECK(WIFEXITED(status) && WEXITSTATUS(status)==0);
+   const auto event=parse_json(std::string(bytes,static_cast<std::size_t>(count))).object();
+   CHECK(event.at("reasonCode").string()=="TELEMETRY_DISABLED");
+   CHECK(event.at("currentState").string()=="NOT_READY");
+   CHECK(event.at("serviceVersion").string()=="18.0.0");
+  }
   CHECK(m.service_instance==native.instance && m.vdp_contract_sha256==std::string(64,'b'));
   const auto binding=metadata_binding(m);
   const auto restored=parse_metadata_binding(binding);
