@@ -68,14 +68,15 @@ class ProductExportTests(unittest.TestCase):
     def test_requires_actual_complete_successful_ctest_report(self) -> None:
         names = ("native_service_inputs", "brake_private_token_session",
                  "brake_health_v1_contract", "brake_health_v2_contract",
-                 "brake_health_runtime_contract", "brake_health_application_contract")
+                 "brake_health_runtime_contract", "brake_health_application_contract",
+                 "brake_demo_mock_isolation")
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "report.xml"
-            body = '<testsuite tests="6" failures="0">' + "".join(
+            body = '<testsuite tests="7" failures="0">' + "".join(
                 f'<testcase name="{name}" />' for name in names) + "</testsuite>"
             path.write_text(body, encoding="utf-8")
             self.assertEqual("passed", EXPORT.inspect_test_report(path)["ctest"])
-            self.assertEqual(6, EXPORT.inspect_test_report(path)["count"])
+            self.assertEqual(7, EXPORT.inspect_test_report(path)["count"])
             path.write_text(body.replace('failures="0"', 'failures="1"'), encoding="utf-8")
             with self.assertRaises(EXPORT.ScaffoldError):
                 EXPORT.inspect_test_report(path)
