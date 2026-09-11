@@ -31,6 +31,7 @@ find_package(Threads REQUIRED)
 add_library(brake_health_runtime
     src/runtime/advisory_runtime.cpp
     src/runtime/application.cpp
+    src/runtime/token_session.cpp
     src/runtime/derived_delivery.cpp
     src/runtime/json.cpp
     src/runtime/model_capture.cpp
@@ -81,6 +82,10 @@ endif()
 
 include(CTest)
 if(BUILD_TESTING)
+    add_executable(brake_token_session_tests tests/token_session_tests.cpp)
+    target_link_libraries(brake_token_session_tests PRIVATE brake_health_runtime)
+    target_compile_options(brake_token_session_tests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    add_test(NAME brake_private_token_session COMMAND brake_token_session_tests)
     add_executable(brake_health_v1_tests tests/cpp/v1/v1_tests.cpp)
     target_link_libraries(brake_health_v1_tests PRIVATE brake_health_v1)
     target_compile_features(brake_health_v1_tests PRIVATE cxx_std_17)

@@ -46,12 +46,14 @@ v1::MessageMetadata parse_metadata(const std::string& bytes) {
     return result;
 }
 std::string read_private_token(const std::filesystem::path& path) {
-    const int fd = ::open(path.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+    const int directory = open_private_token_directory(path.parent_path());
+    struct CloseDirectory { int fd; ~CloseDirectory() { ::close(fd); } } close_directory{directory};
+    const int fd = ::openat(directory, path.filename().c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
     if (fd < 0) throw std::runtime_error("KUKSA_AUTH_UNAVAILABLE");
     struct Close { int fd; ~Close() { ::close(fd); } } close{fd};
     struct stat info{};
-    if (::fstat(fd, &info) != 0 || !S_ISREG(info.st_mode) || info.st_uid != ::geteuid() ||
-        (info.st_mode & 0777) != 0400 || info.st_size <= 0 || info.st_size > 16384) throw std::runtime_error("KUKSA_AUTH_UNAVAILABLE");
+    if (::fstat(fd, &info) != 0 || !S_ISREG(info.st_mode) || info.st_uid != ::geteuid() || info.st_nlink != 1 ||
+        (info.st_mode & 07777) != 0400 || info.st_size <= 0 || info.st_size > 16384) throw std::runtime_error("KUKSA_AUTH_UNAVAILABLE");
     std::string token;
     char chunk[4096];
     for (;;) {

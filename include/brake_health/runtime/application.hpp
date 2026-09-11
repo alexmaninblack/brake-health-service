@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 #include "brake_health/runtime/runtime.hpp"
+#include "brake_health/runtime/token_session.hpp"
 
 namespace brake_health::runtime {
-inline constexpr const char* token_path = "/run/aosedge/secrets/kuksa/token.jwt";
 struct ApplicationInputs { std::filesystem::path metadata_file; std::filesystem::path ca_file; };
 ApplicationInputs parse_arguments(int argc, char** argv);
 v1::MessageMetadata parse_metadata(const std::string& bytes);

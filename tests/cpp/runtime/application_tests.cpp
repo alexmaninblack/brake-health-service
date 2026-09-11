@@ -54,7 +54,7 @@ void lease_deadlines() {
     CHECK(lease.expired(1300, 5000));
 }
 void token_delivery() {
-    auto pattern = (std::filesystem::temp_directory_path() / "bhs-application-XXXXXX").string();
+    auto pattern = (std::filesystem::canonical(std::filesystem::temp_directory_path()) / "bhs-application-XXXXXX").string();
     const auto* made = ::mkdtemp(pattern.data()); CHECK(made);
     const std::filesystem::path directory(made), token = directory / "token.jwt";
     struct Cleanup { std::filesystem::path path; ~Cleanup() { std::filesystem::remove_all(path); } } cleanup{directory};

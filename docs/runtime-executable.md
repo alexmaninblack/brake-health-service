@@ -13,14 +13,25 @@ The unchanged diagnostic scaffold must not be used for a Brake product upload.
 
 ## Process and transport boundary
 
+The private-session increment implements
+[ADR 0015](../../aosedge-sdv-demo/docs/architecture/decisions/0015-use-native-aos-service-runtime-inputs.md)
+without an SM token-owner patch; host tests pass. The seven-field metadata
+reader and legacy product messages below are still the old implementation.
+Package/provenance migration remains next, before publication. Do not provide
+fabricated metadata or activate new public inputs with old readers.
+
 - `/usr/bin/brake-health-bootstrap` is the intended Aos command. It consumes
   `AOS_SECRET`, removes that variable before exec of the analytics child, and
   uses only the accepted fixed KAC Unix socket. The child has no instance
   secret. KAC secrets and responses are never printed.
-- KAC owns token issuance; bootstrap owns renewal and atomic mode-`0400`
-  delivery to `/run/aosedge/secrets/kuksa/token.jwt`. The existing named
-  resource must supply its private owner-only tmpfs directory. No fallback
-  directory is created. `KUKSA_TOKEN_FILE` is a fixed child environment value.
+- KAC owns token issuance; bootstrap creates a fresh private 0700 session under
+  the existing per-container 1777 tmpfs and owns renewal/atomic 0400 delivery
+  to `/run/aosedge/secrets/kuksa/session-<random>/token.jwt`.
+  KUKSA_TOKEN_FILE carries only that path. Wrong ownership/modes, symlinks
+  and hard-linked tokens are rejected. Normal exit removes only the owned
+  session; restart never adopts an old token. Eight session entries bounds
+  crash orphans; exhaustion fails without deleting another session.
+  Container destruction clears the private tmpfs.
 - An independent bootstrap loop removes the token at signed expiry even when
   an eight-second renewal request is outstanding. BOOTTIME bounds prevent a
   backward wall-clock jump extending a lease. A terminal rejection removes

@@ -25,9 +25,7 @@ void auth_state(bool ready) {
               << (ready ? "READY" : "NOT_READY") << "\",\"reasonCode\":\""
               << (ready ? "NONE" : "KUKSA_AUTH_UNAVAILABLE") << "\"}" << std::endl;
 }
-void remove_token() {
-    if (::unlink(token_path) != 0 && errno != ENOENT) throw std::runtime_error("TOKEN_REMOVE_FAILED");
-}
+
 void stop_child(pid_t child) {
     ::kill(child, SIGTERM);
     for (int i = 0; i < 50; ++i) {
@@ -50,13 +48,11 @@ int main(int argc, char** argv) {
         const char* environment_secret = std::getenv("AOS_SECRET");
         if (!environment_secret || !*environment_secret) throw std::runtime_error("AOS_SECRET_UNAVAILABLE");
         const std::string request = credential_request(environment_secret);
-        if (::unsetenv("AOS_SECRET") != 0 || ::setenv("KUKSA_TOKEN_FILE", token_path, 1) != 0) throw std::runtime_error("CREDENTIAL_ENVIRONMENT_INVALID");
+        if (::unsetenv("AOS_SECRET") != 0) throw std::runtime_error("CREDENTIAL_ENVIRONMENT_INVALID");
         ::umask(0077);
-        struct stat directory{};
-        const auto token_directory = std::filesystem::path(token_path).parent_path();
-        if (::lstat(token_directory.c_str(), &directory) != 0 || !S_ISDIR(directory.st_mode) ||
-            directory.st_uid != ::geteuid() || (directory.st_mode & 0777) != 0700) throw std::runtime_error("TOKEN_DIRECTORY_INVALID");
-        remove_token();
+        TokenSession session;
+        if (::setenv("KUKSA_TOKEN_FILE", session.token_file().c_str(), 1) != 0)
+            throw std::runtime_error("CREDENTIAL_ENVIRONMENT_INVALID");
         std::signal(SIGINT, signal_handler); std::signal(SIGTERM, signal_handler);
         const auto bootstrap_pid = ::getpid();
         child = ::fork();
@@ -84,11 +80,11 @@ int main(int argc, char** argv) {
             const auto boot = boot_milliseconds(), wall = wall_milliseconds() / 1000;
             int status = 0;
             if (::waitpid(child, &status, WNOHANG) == child) {
-                child = -1; stop = true; remove_token();
+                child = -1; stop = true; session.remove_token();
                 return WIFEXITED(status) ? WEXITSTATUS(status) : 1;
             }
             // This runs independently of the in-flight eight-second KAC call.
-            if (has_token && lease.expired(wall, boot)) { remove_token(); has_token = false; auth_state(false); }
+            if (has_token && lease.expired(wall, boot)) { session.remove_token(); has_token = false; auth_state(false); }
             if (issue.valid() && issue.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
                 std::optional<Credential> received;
                 try {
@@ -98,13 +94,13 @@ int main(int argc, char** argv) {
                     const auto& credential = *received;
                     if (!credential.token.empty()) {
                         if (credential.expires <= wall || credential.renew_after <= wall) throw std::runtime_error("KAC_RESPONSE_EXPIRED");
-                        atomic_private_file(token_path, credential.token);
+                        atomic_private_file(session.token_file(), credential.token);
                         lease.issued(credential, wall, boot);
                         next_attempt = lease.renew_boot; failures = 0;
                         if (!has_token) auth_state(true);
                         has_token = true;
                     } else if (!credential.retryable) {
-                        remove_token(); terminal = true;
+                        session.remove_token(); terminal = true;
                         if (has_token) auth_state(false);
                         has_token = false;
                     } else next_attempt = boot + retry_delay(failures++, jitter(random)) * 1000;
@@ -118,7 +114,7 @@ int main(int argc, char** argv) {
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
         stop = true;
-        remove_token();
+        session.remove_token();
         stop_child(child); child = -1;
         return 0;
     } catch (...) {
