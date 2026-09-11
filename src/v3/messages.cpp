@@ -43,9 +43,10 @@ std::string json_string(std::string_view value) {
 }
 
 void validate_metadata(const DeploymentMetadata& metadata) {
-    if (!bounded_identifier(metadata.unit_system_uid) ||
+    if ((metadata.service_instance && (!native_identifier(metadata.unit_system_uid) || !package_version(metadata.vdp_contract_version))) ||
+        !bounded_identifier(metadata.unit_system_uid) ||
         !semantic_version(metadata.service_version) ||
-        !canonical_sha256(metadata.service_artifact_sha256) ||
+        (metadata.service_instance ? !native_provenance_valid(metadata.service_instance, metadata.service_version, metadata.service_artifact_sha256) : !canonical_sha256(metadata.service_artifact_sha256)) ||
         !semantic_version(metadata.vdp_contract_version) ||
         !canonical_sha256(metadata.vdp_contract_sha256)) {
         throw std::invalid_argument("v3 deployment metadata violates the contract");
@@ -230,16 +231,16 @@ AdvisoryFact build_advisory_fact(
     const std::string encoded = std::string("{") +
         "\"content\":" + canonical_content +
         ",\"contentSha256\":" + json_string(content_sha) +
-        ",\"contractVersion\":\"1.0.0\"" +
+        (metadata.service_instance ? ",\"contractVersion\":\"2.0.0\"" : ",\"contractVersion\":\"1.0.0\"") +
         ",\"gatewayState\":" + json_string(gateway_state_name(status.state)) +
         ",\"messageType\":\"BRAKE_ADVISORY_FACT\"" +
         ",\"producerEpoch\":" + json_string(request.producer_epoch) +
         ",\"recordedAt\":" + json_string(recorded_at) +
         ",\"requestId\":" + json_string(request.request_id) +
-        ",\"schemaVersion\":1" +
+        (metadata.service_instance ? ",\"schemaVersion\":2" : ",\"schemaVersion\":1") +
         ",\"sequence\":" + std::to_string(request.sequence) +
-        ",\"serviceArtifactSha256\":" +
-        json_string(metadata.service_artifact_sha256) +
+        (metadata.service_instance ? ",\"serviceInstance\":" + service_instance_json(*metadata.service_instance) :
+            ",\"serviceArtifactSha256\":" + json_string(metadata.service_artifact_sha256)) +
         ",\"serviceVersion\":" + json_string(metadata.service_version) +
         ",\"unitRole\":" +
         json_string(brake_health::v2::unit_role_name(metadata.unit_role)) +

@@ -15,10 +15,10 @@ The unchanged diagnostic scaffold must not be used for a Brake product upload.
 
 The private-session increment implements
 [ADR 0015](../../aosedge-sdv-demo/docs/architecture/decisions/0015-use-native-aos-service-runtime-inputs.md)
-without an SM token-owner patch; host tests pass. The seven-field metadata
-reader and legacy product messages below are still the old implementation.
-Package/provenance migration remains next, before publication. Do not provide
-fabricated metadata or activate new public inputs with old readers.
+without an SM token-owner patch. The native-input producer increment now passes
+host tests and offline producer/backend conformance. Publication remains gated
+on Demo Control package assembly/public projection, boot ordering and a real
+ARM64/gRPC build; no live execution is claimed.
 
 - `/usr/bin/brake-health-bootstrap` is the intended Aos command. It consumes
   `AOS_SECRET`, removes that variable before exec of the analytics child, and
@@ -61,7 +61,9 @@ fabricated metadata or activate new public inputs with old readers.
 
 ## Growing-window delivery
 
-The accepted D4-016.1/.2 and D4-017 messages are unchanged. The runtime seals
+D4-016.1/.2 capture, content hashes and D4-017 receipt semantics are unchanged.
+New product envelopes use native provenance revision 2; legacy envelopes remain
+readable for retained queues. The runtime seals
 the PRE prefix separately from ACTIVE/POST: PRE chunks (including a short
 last PRE chunk) become eligible as soon as the trigger checkpoint is durable.
 Later complete ten-sample ACTIVE/POST chunks are eligible during capture;
@@ -74,7 +76,7 @@ existing maximum of 15. It does not require warming a full PRE ring before
 the first trigger. The completed-message serializer and its golden vectors
 remain unchanged; the runtime uses the additional growing-message serializer.
 The backend's existing cumulative `firstSampleIndex` validation accepts these
-boundaries; no backend API or contract version change is required.
+boundaries; the provenance revision does not change these partition/content rules.
 
 An ACK during capture never deletes the event. Sealed bytes cannot change
 while in flight, terminal publication preserves acknowledged chunks, and the
@@ -105,24 +107,30 @@ It does not establish a guest mount, a metadata producer, a default UID, or a
 deployment mechanism. Missing/invalid inputs fail closed; no identity is
 derived from a version label, Subject label, hostname, or current operator.
 
-The closed metadata object has seven required fields:
+The public metadata object has exactly five fields: `schemaVersion: 2`,
+`unitSystemUid`, `unitRole` (`validation` or `production`),
+`vdpContractVersion` and `vdpContractSha256`.
 
-| Field | Validation and ownership requirement |
-| --- | --- |
-| `schemaVersion` | Exactly integer `1` |
-| `unitSystemUid` | Nonempty bounded identifier; must originate from the current Unit's authoritative system identity |
-| `unitRole` | Exactly `validation` or `production`; supplied by the agreed role binding |
-| `serviceVersion` | Bounded semantic version, bound to the active service instance |
-| `serviceArtifactSha256` | Lowercase 64-hex digest, with accepted artifact-digest meaning; not an invented binary digest |
-| `vdpContractVersion` | Bounded semantic version from the accepted active VDP contract |
-| `vdpContractSha256` | Lowercase 64-hex digest of the accepted active contract |
+Both entry points read immutable `/usr/share/aosedge/service-release.json`
+(`schemaVersion: 1`, `serviceVersion`) and the native
+`AOS_ITEM_ID`, `AOS_SUBJECT_ID`, `AOS_INSTANCE_INDEX` and
+`AOS_INSTANCE_ID` once at startup. The analytics process freezes these values
+while refreshing public metadata. Package/public JSON cannot override native
+identity. Versions are strict `X.Y.Z`, max 32 characters; identifiers are
+bounded ASCII; the index is a nonnegative JSON-safe integer. No second release
+option or OCI-digest fallback exists.
 
-Additional properties, missing fields, malformed JSON, duplicate keys, invalid
-role/version/digests and over-size input are rejected. The executable permits
-VDP provenance refresh but refuses changes to Unit UID/role or service
-version/artifact identity during that process lifetime. Before accepting VDP
-metadata changes it closes the old active window with its old provenance;
-queued messages are never relabelled.
+All five Brake product message kinds use `schemaVersion: 2`,
+`contractVersion: "2.0.0"` and a closed `serviceInstance` object.
+Neither `serviceArtifactSha256` nor `modelArtifactSha256` is emitted.
+Model configuration and VDP compatibility hashes retain their meanings.
+QM advisory requests/GatewayStatus, content hashes, keys and ACKs do not change.
+
+The explicit legacy decoder is used only for historical private request
+bindings/golden fixtures. A legacy seven-field file cannot start a new process.
+Queued bytes, old binding identities, epochs, sequences and original receipts
+are retained. Window recovery checks wire revision and complete provenance;
+a committed VDP change closes capture under its original metadata.
 
 ## Precise live binding gate
 
@@ -133,7 +141,7 @@ The examined Factory `.31` uses platform commit
 | Available source/mechanism | What it proves / what it does not provide |
 | --- | --- |
 | Native IAM `GetSystemInfo.system_id` and official SDK `system_uid` | Authoritative Unit system identity exists; it is not one of the standard Service environment fields |
-| Standard SM environment `AOS_ITEM_ID`, `AOS_SUBJECT_ID`, `AOS_INSTANCE_INDEX`, `AOS_INSTANCE_ID`, `AOS_SECRET` | Identifies the service instance and its IAM authorization secret; does not supply all six message provenance values |
+| Standard SM environment `AOS_ITEM_ID`, `AOS_SUBJECT_ID`, `AOS_INSTANCE_INDEX`, `AOS_INSTANCE_ID`, `AOS_SECRET` | Identifies the service instance and its IAM authorization secret; does not supply the package release or public Unit/VDP inputs |
 | Existing Aos package environment overrides | A supported carrier, not by itself an authoritative source or agreed change lifecycle; baking the current UID into reusable packages is not acceptable |
 | `.31` named resource `kuksa` | Adds host `Server` -> `10.0.0.100`; no filesystem trust input |
 | `.31` named resource `kuksa-auth-client` | Supplies KAC socket and per-instance token tmpfs; does not expose the KUKSA public TLS certificate |
@@ -197,9 +205,12 @@ distribution gRPC libraries merely because their package names match.
 
 ## Verification scope and remaining product work
 
-Four host CTest targets pass: existing v1/v2 domains, sixteen runtime protocol/
-durability groups, and thirteen application/profile/input/recovery groups.
-`brake-health-bootstrap` compiles with warnings-as-errors. Tests use isolated
+Six host CTest targets pass: native inputs, private token sessions, v1/v2
+domains, runtime delivery and composed application/recovery tests.
+`brake-health-bootstrap` compiles with warnings-as-errors.
+`tests/native_backend_conformance.mjs <application-test-binary> <backend-checkout>`
+validates actual C++ output from all five kinds against the matching compiled
+backend and an in-memory database, including retries and window correlation. Tests use isolated
 fixtures only; no runtime fixture records are installed or sent to a live
 backend. There is no claim of bootstrap/child/KAC socket E2E or TLS gRPC fixture
 E2E yet; real build and live execution remain owned by Demo Control.

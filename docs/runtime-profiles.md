@@ -9,7 +9,7 @@ The executable selects its immutable content at compilation using
 `BHS_FUNCTIONAL_PROFILE=v1|v2|v3`. The default remains `v1`; every unknown
 value fails CMake configuration. Neither the executable nor a package exporter
 infers this selection from `serviceVersion`. Release numbers in the accepted
-deployment metadata are carried unchanged in product messages and requests.
+immutable package metadata are carried unchanged in product messages and requests.
 One Service identity can therefore publish successive releases of the same
 functional profile.
 
@@ -36,14 +36,15 @@ The signed Aos service must start `/usr/bin/brake-health-bootstrap`, passing:
 
 Bootstrap alone consumes `AOS_SECRET` and exchanges it at the existing KAC
 socket. It removes the secret before executing `/usr/bin/brake-health-service`.
-The child uses the fixed owner-only JWT file and authenticated TLS KUKSA VAL
-endpoint `Server:55555`. The metadata remains the closed seven-field schema
-documented in `runtime-executable.md`; profile selection adds no metadata field.
+The child uses the private session token path and authenticated TLS KUKSA VAL
+endpoint `Server:55555`. Public metadata uses the five-field revision-2 schema;
+release comes from the immutable package, identity from native Aos environment.
+See `runtime-executable.md`; profile selection adds no metadata field.
 
 The accepted packaging resources are `kuksa`, `kuksa-auth-client` and the
 approved read-only `brake-runtime-inputs` mapping. Demo Control owns production
-of authoritative metadata/public trust and the exact effective instance
-identity. This source does not generate that identity, discover private trust,
+of authoritative Unit/VDP metadata and public trust. Native Aos supplies the
+effective service-instance identity. This source does not generate that identity, discover private trust,
 reuse private keys, grant new paths or bypass TLS verification.
 
 The only advisory write is an exact `FIELD_ACTUATOR_TARGET` for

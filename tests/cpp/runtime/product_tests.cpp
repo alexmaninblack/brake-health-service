@@ -3,6 +3,7 @@
 #include "brake_health/runtime/product.hpp"
 #include "brake_health/v1/sha256.hpp"
 #include <cmath>
+#include <iostream>
 #include <filesystem>
 #include <limits>
 #include <stdexcept>
@@ -24,7 +25,13 @@ struct Directory {
     ~Directory() { std::error_code ignored; std::filesystem::remove_all(path, ignored); }
 };
 constexpr std::int64_t epoch = 1787400000000LL;
+bool native_fixture=false;
 v1::MessageMetadata metadata(const std::string& release) {
+    if(native_fixture) {
+        const auto native=parse_service_inputs("{\"schemaVersion\":1,\"serviceVersion\":"+quote_json(release)+"}",
+            {{"AOS_ITEM_ID","brake-service"},{"AOS_SUBJECT_ID","group-subject"},{"AOS_INSTANCE_INDEX","0"},{"AOS_INSTANCE_ID","native-"+release}});
+        return parse_metadata("{\"schemaVersion\":2,\"unitSystemUid\":\"host-test-unit\",\"unitRole\":\"validation\",\"vdpContractVersion\":\"42.0.0\",\"vdpContractSha256\":\""+std::string(64,'2')+"\"}",native);
+    }
     return {"host-test-unit", v1::UnitRole::Validation, release, std::string(64, '1'), "42.0.0", std::string(64, '2')};
 }
 std::vector<Signal> sample(std::int64_t time) {
@@ -294,4 +301,88 @@ void product_contract_tests() {
     advisory_journal_recovery(); advisory_corrupt_journal_preserved();
     invalid_product_frame_ends_capture();
     model_capture_retrigger_and_limit();
+}
+
+void native_products_conformance(bool emit) {
+    native_fixture=true;
+    Directory directory;
+    const auto current=metadata("18.0.0");
+    const auto check=[&](const std::string& bytes) {
+        const auto value=parse_json(bytes);
+        CHECK(value.at("schemaVersion").integer()==2 && value.at("contractVersion").string()=="2.0.0");
+        CHECK(!value.object().count("serviceArtifactSha256") && !value.object().count("modelArtifactSha256"));
+        CHECK(parse_service_instance(value.at("serviceInstance"))==*current.service_instance);
+        CHECK(value.at("serviceVersion").string()=="18.0.0");
+        if(emit)std::cout<<bytes<<'\n';
+    };
+    v1::WindowEngine engine(random_uuid);
+    for(int i=0;i<=20;++i) {
+        const auto at=i*50;
+        v1::SourceFrame frame{42,-6,0,0,0,60,utc_timestamp(epoch+at),epoch+at,at,20,v1::FrameQuality::ValidCompleteFrame};
+        engine.ingest(frame);
+    }
+    const auto window=engine.abort_service_stop();CHECK(window);
+    const auto messages=v1::build_growing_messages(current,*window);
+    for(const auto& chunk:messages.chunks)check(chunk.canonical_json);
+    check(messages.completion.canonical_json);
+    // A completed v2 window must survive a new package/instance without relabelling.
+    {
+        v1::EventSpool spool(directory.path/"window");
+        CHECK(spool.store_completed(window->event_id,messages)==v1::AdmissionResult::Stored);
+    }
+    Runtime recovered(directory.path/"window",metadata("19.0.0"));
+    CHECK(recovered.inventory().size()==1);
+    CHECK(recovered.next_message()->bytes==messages.chunks.front().canonical_json);
+    auto changed=metadata("19.0.0");changed.service_instance->instance_id="different";
+    rejects([&]{recovered.update_vdp_metadata(changed);});
+    Product product(directory.path/"product",current,FunctionalProfile::V3);
+    CHECK(drive(product).status==v2::ProcessStatus::Produced);
+    const auto request=product.next_request(epoch+10000);CHECK(request);
+    CHECK(parse_json(request->canonical_json).at("schemaVersion").integer()==1);
+    const auto status=v3::gateway_status_json(applied(*request,epoch+10010));
+    CHECK(parse_json(status).at("schemaVersion").integer()==1);
+    CHECK(product.observe_gateway(status,epoch+10020));
+    unsigned count=0;
+    while(const auto pending=product.next_message()) {
+        check(pending->bytes());CHECK(product.accept(*pending,{201,ack(pending->bytes()),0}));++count;
+    }
+    CHECK(count==3);
+    native_fixture=false;
+}
+void mixed_provenance_recovery() {
+    Directory directory;std::string retained;
+    native_fixture=false;
+    {
+        Product old_product(directory.path,metadata("3.0.0"),FunctionalProfile::V3);
+        CHECK(drive(old_product).status==v2::ProcessStatus::Produced);
+        retained=old_product.next_message()->bytes();
+        CHECK(old_product.next_request(epoch+10000));
+    }
+    native_fixture=true;
+    {
+        Product product(directory.path,metadata("18.0.0"),FunctionalProfile::V3);
+        CHECK(product.next_message()->bytes()==retained);
+        const auto request=product.next_request(epoch+11000);CHECK(request);
+        CHECK(request->service_version=="3.0.0");
+        CHECK(product.observe_gateway(v3::gateway_status_json(applied(*request,epoch+11010)),epoch+11020));
+        unsigned count=0;
+        while(const auto pending=product.next_message()) {
+            CHECK(parse_json(pending->bytes()).at("schemaVersion").integer()==1);
+            CHECK(product.accept(*pending,{201,ack(pending->bytes()),0}));++count;
+        }
+        CHECK(count==3);
+        const auto next=product.next_request(epoch+30000);CHECK(next);
+        CHECK(next->sequence==request->sequence+1 && next->producer_epoch==request->producer_epoch);
+        CHECK(next->service_version=="18.0.0");
+        CHECK(product.observe_gateway(v3::gateway_status_json(applied(*next,epoch+30010)),epoch+30020));
+        CHECK(parse_json(product.next_message()->bytes()).at("schemaVersion").integer()==2);
+    }
+    native_fixture=false;
+}
+void native_product_contract_tests() {
+    native_fixture=true;
+    product_upgrade_and_delivery();advisory_overflow_and_conflict();
+    advisory_journal_recovery();advisory_corrupt_journal_preserved();
+    native_fixture=false;
+    native_products_conformance(false);mixed_provenance_recovery();
 }

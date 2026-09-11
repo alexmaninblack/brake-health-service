@@ -73,7 +73,7 @@ ProductObservation Product::ingest(const std::vector<Signal>& values, std::int64
             v2::DeploymentMetadata m{metadata_.unit_system_uid,
                 metadata_.unit_role == v1::UnitRole::Validation ? v2::UnitRole::Validation : v2::UnitRole::Production,
                 metadata_.service_version, metadata_.service_artifact_sha256, metadata_.vdp_contract_version,
-                metadata_.vdp_contract_sha256, metadata_.service_artifact_sha256, v2::kModelConfigSha256, utc_timestamp(wall)};
+                metadata_.vdp_contract_sha256, metadata_.service_artifact_sha256, v2::kModelConfigSha256, utc_timestamp(wall), metadata_.service_instance};
             const auto usage = advisory_ ? advisory_->outbox_usage() : std::pair<std::size_t, std::size_t>{};
             result.analysis = model_->process(*episode, m, {}, usage.first, usage.second);
             if (!model_->ready()) ready_ = result.valid = false;

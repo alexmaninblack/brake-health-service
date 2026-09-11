@@ -42,8 +42,9 @@ int main(int argc, char** argv) {
     std::atomic<bool> stop{false};
     pid_t child = -1;
     try {
-        const auto inputs = parse_arguments(argc, argv);
-        (void)parse_metadata(read_file(inputs.metadata_file, 8192));
+        auto inputs = parse_arguments(argc, argv);
+        initialize_service_inputs(inputs);
+        (void)runtime_metadata(inputs, read_file(inputs.metadata_file, 8192));
         (void)read_file(inputs.ca_file, 65536);
         const char* environment_secret = std::getenv("AOS_SECRET");
         if (!environment_secret || !*environment_secret) throw std::runtime_error("AOS_SECRET_UNAVAILABLE");

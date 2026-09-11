@@ -216,13 +216,13 @@ std::string top_level_message(
     return std::string("{") +
            "\"content\":" + std::string(content) +
            ",\"contentSha256\":" + json_string(content_sha256) +
-           ",\"contractVersion\":\"1.0.0\"" +
+           (metadata.service_instance ? ",\"contractVersion\":\"2.0.0\"" : ",\"contractVersion\":\"1.0.0\"") +
            ",\"eventId\":" + json_string(window.event_id) +
            ",\"eventType\":\"HARD_BRAKING_EPISODE_V1\"" +
            ",\"messageType\":" + json_string(message_type) +
-           ",\"schemaVersion\":1" +
-           ",\"serviceArtifactSha256\":" +
-           json_string(metadata.service_artifact_sha256) +
+           (metadata.service_instance ? ",\"schemaVersion\":2" : ",\"schemaVersion\":1") +
+           (metadata.service_instance ? ",\"serviceInstance\":" + service_instance_json(*metadata.service_instance) :
+            ",\"serviceArtifactSha256\":" + json_string(metadata.service_artifact_sha256)) +
            ",\"serviceVersion\":" + json_string(metadata.service_version) +
            ",\"unitRole\":" + json_string(unit_role_name(metadata.unit_role)) +
            ",\"unitSystemUid\":" + json_string(metadata.unit_system_uid) +
@@ -231,10 +231,11 @@ std::string top_level_message(
 }
 
 void validate_metadata(const MessageMetadata& metadata, const EventWindow& window) {
-    if (!bounded_identifier(metadata.unit_system_uid) ||
+    if ((metadata.service_instance && (!native_identifier(metadata.unit_system_uid) || !package_version(metadata.vdp_contract_version))) ||
+        !bounded_identifier(metadata.unit_system_uid) ||
         !semantic_version(metadata.service_version) ||
         !semantic_version(metadata.vdp_contract_version) ||
-        !lowercase_sha256(metadata.service_artifact_sha256) ||
+        (metadata.service_instance ? !native_provenance_valid(metadata.service_instance, metadata.service_version, metadata.service_artifact_sha256) : !lowercase_sha256(metadata.service_artifact_sha256)) ||
         !lowercase_sha256(metadata.vdp_contract_sha256) || !uuid4(window.event_id) ||
         !is_rfc3339_millisecond_utc(window.trigger_timestamp)) {
         throw std::invalid_argument("message metadata does not satisfy the v1 schema");

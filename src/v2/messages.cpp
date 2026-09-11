@@ -263,12 +263,13 @@ void validate_metadata(
     const DeploymentMetadata& metadata,
     const CompletedEpisode& episode,
     const Assessment& assessment) {
-    if (!bounded_identifier(metadata.unit_system_uid) ||
+    if ((metadata.service_instance && (!native_identifier(metadata.unit_system_uid) || !package_version(metadata.vdp_contract_version))) ||
+        !bounded_identifier(metadata.unit_system_uid) ||
         !semantic_version(metadata.service_version) ||
         !semantic_version(metadata.vdp_contract_version) ||
-        !lowercase_sha256(metadata.service_artifact_sha256) ||
+        (metadata.service_instance ? !native_provenance_valid(metadata.service_instance, metadata.service_version, metadata.service_artifact_sha256) : !lowercase_sha256(metadata.service_artifact_sha256)) ||
         !lowercase_sha256(metadata.vdp_contract_sha256) ||
-        !lowercase_sha256(metadata.model_artifact_sha256) ||
+        (metadata.service_instance ? !metadata.model_artifact_sha256.empty() : !lowercase_sha256(metadata.model_artifact_sha256)) ||
         metadata.model_config_sha256 != kModelConfigSha256 ||
         !uuid_with_version(episode.source_event_id, '4') ||
         !brake_health::v1::is_rfc3339_millisecond_utc(metadata.assessed_at) ||
@@ -521,15 +522,16 @@ DerivedMessages build_messages(
         ",\"assessmentId\":" + json_string(id) +
         ",\"content\":" + content +
         ",\"contentSha256\":" + json_string(content_sha) +
-        ",\"contractVersion\":\"1.0.0\"" +
+        (metadata.service_instance ? ",\"contractVersion\":\"2.0.0\"" : ",\"contractVersion\":\"1.0.0\"") +
         ",\"messageType\":\"BRAKE_HEALTH_ASSESSMENT\"" +
-        ",\"modelArtifactSha256\":" + json_string(metadata.model_artifact_sha256) +
+        (metadata.service_instance ? "" : ",\"modelArtifactSha256\":" + json_string(metadata.model_artifact_sha256)) +
         ",\"modelConfigSha256\":" + json_string(metadata.model_config_sha256) +
         ",\"modelId\":\"brake-condition-demo-v1\"" +
         ",\"modelVersion\":\"1.0.0\"" +
         ",\"provenance\":\"DEMO_SYNTHETIC\"" +
-        ",\"schemaVersion\":1" +
-        ",\"serviceArtifactSha256\":" + json_string(metadata.service_artifact_sha256) +
+        (metadata.service_instance ? ",\"schemaVersion\":2" : ",\"schemaVersion\":1") +
+        (metadata.service_instance ? ",\"serviceInstance\":" + service_instance_json(*metadata.service_instance) :
+            ",\"serviceArtifactSha256\":" + json_string(metadata.service_artifact_sha256)) +
         ",\"serviceVersion\":" + json_string(metadata.service_version) +
         ",\"sourceEventId\":" + json_string(episode.source_event_id) +
         ",\"unitRole\":" + json_string(unit_role_name(metadata.unit_role)) +
@@ -558,15 +560,16 @@ DerivedMessages build_messages(
             "\"assessmentId\":" + json_string(id) +
             ",\"content\":" + event_body +
             ",\"contentSha256\":" + json_string(event_sha) +
-            ",\"contractVersion\":\"1.0.0\"" +
+            (metadata.service_instance ? ",\"contractVersion\":\"2.0.0\"" : ",\"contractVersion\":\"1.0.0\"") +
             ",\"eventId\":" + json_string(event_id) +
             ",\"messageType\":\"BRAKE_HEALTH_EVENT\"" +
             ",\"modelConfigSha256\":" + json_string(metadata.model_config_sha256) +
             ",\"modelId\":\"brake-condition-demo-v1\"" +
             ",\"modelVersion\":\"1.0.0\"" +
             ",\"provenance\":\"DEMO_SYNTHETIC\"" +
-            ",\"schemaVersion\":1" +
-            ",\"serviceArtifactSha256\":" + json_string(metadata.service_artifact_sha256) +
+            (metadata.service_instance ? ",\"schemaVersion\":2" : ",\"schemaVersion\":1") +
+            (metadata.service_instance ? ",\"serviceInstance\":" + service_instance_json(*metadata.service_instance) :
+            ",\"serviceArtifactSha256\":" + json_string(metadata.service_artifact_sha256)) +
             ",\"serviceVersion\":" + json_string(metadata.service_version) +
             ",\"sourceEventId\":" + json_string(episode.source_event_id) +
             ",\"unitRole\":" + json_string(unit_role_name(metadata.unit_role)) +

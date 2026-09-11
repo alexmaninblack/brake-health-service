@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "brake_health/runtime/runtime.hpp"
 #include "brake_health/runtime/json.hpp"
+#include "brake_health/runtime/application.hpp"
 #include "brake_health/v1/sha256.hpp"
 
 #include <algorithm>
@@ -56,9 +57,23 @@ void verify_completed_set(const std::filesystem::path& directory, const v1::Spoo
             expected_hashes[i].string() != chunk.at("contentSha256").string())
             throw std::runtime_error("SPOOL_SET_INVALID");
         for (const auto* key : {"eventId", "unitSystemUid", "unitRole", "serviceVersion",
-                "serviceArtifactSha256", "vdpContractVersion", "vdpContractSha256"})
+                "vdpContractVersion", "vdpContractSha256"})
             if (chunk.at(key).string() != completion.at(key).string())
                 throw std::runtime_error("SPOOL_SET_INVALID");
+        const auto revision = completion.at("schemaVersion").integer();
+        if ((revision != 1 && revision != 2) || chunk.at("schemaVersion").integer() != revision ||
+            completion.at("contractVersion").string() != (revision == 2 ? "2.0.0" : "1.0.0") ||
+            chunk.at("contractVersion").string() != completion.at("contractVersion").string())
+            throw std::runtime_error("SPOOL_SET_INVALID");
+        const auto* provenance = revision == 2 ? "serviceInstance" : "serviceArtifactSha256";
+        const auto* forbidden = revision == 2 ? "serviceArtifactSha256" : "serviceInstance";
+        if (chunk.object().count(forbidden) || completion.object().count(forbidden) ||
+            encode_json(chunk.at(provenance)) != encode_json(completion.at(provenance)))
+            throw std::runtime_error("SPOOL_SET_INVALID");
+        if (revision == 2) {
+            (void)parse_service_instance(chunk.at("serviceInstance"));
+            if (!package_version(chunk.at("serviceVersion").string())) throw std::runtime_error("SPOOL_SET_INVALID");
+        }
         expected_sample += values.at("sampleCount").integer();
         hashes.push_back(chunk.at("contentSha256").string());
     }
@@ -254,7 +269,7 @@ void Runtime::stop() { std::lock_guard<std::mutex> lock(mutex_); auto window = e
 void Runtime::update_vdp_metadata(const v1::MessageMetadata& metadata) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (metadata.unit_system_uid != metadata_.unit_system_uid || metadata.unit_role != metadata_.unit_role ||
-        metadata.service_version != metadata_.service_version || metadata.service_artifact_sha256 != metadata_.service_artifact_sha256)
+        metadata.service_version != metadata_.service_version || metadata.service_artifact_sha256 != metadata_.service_artifact_sha256 || metadata.service_instance != metadata_.service_instance)
         throw std::invalid_argument("IMMUTABLE_IDENTITY_CHANGED");
     if (metadata.vdp_contract_version != metadata_.vdp_contract_version || metadata.vdp_contract_sha256 != metadata_.vdp_contract_sha256) {
         v1::SourceFrame missing; missing.quality = v1::FrameQuality::Incomplete;

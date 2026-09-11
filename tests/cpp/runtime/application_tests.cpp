@@ -7,6 +7,8 @@
 #include <sys/stat.h>
 #include <unistd.h>
 void product_contract_tests();
+void native_product_contract_tests();
+void native_products_conformance(bool emit);
 
 namespace {
 using namespace brake_health::runtime;
@@ -17,20 +19,20 @@ std::string metadata() {
         std::string(64, 'a') + "\",\"vdpContractVersion\":\"0.1.1\",\"vdpContractSha256\":\"" + std::string(64, 'b') + "\"}";
 }
 void closed_metadata() {
-    const auto parsed = parse_metadata(metadata());
+    const auto parsed = parse_legacy_metadata(metadata());
     CHECK(parsed.unit_system_uid == "fixture-unit");
     CHECK(parsed.unit_role == brake_health::v1::UnitRole::Validation);
     auto input = metadata(); input.pop_back(); input += ",\"extra\":true}";
-    rejects([&] { parse_metadata(input); });
+    rejects([&] { parse_legacy_metadata(input); });
     input = metadata(); input.replace(input.find("validation"), 10, "test");
-    rejects([&] { parse_metadata(input); });
+    rejects([&] { parse_legacy_metadata(input); });
     input = metadata(); input.replace(input.find(std::string(64, 'a')), 64, "wrong");
-    rejects([&] { parse_metadata(input); });
+    rejects([&] { parse_legacy_metadata(input); });
     input = metadata(); input.replace(input.find("fixture-unit"), 12, "../wrong");
-    rejects([&] { parse_metadata(input); });
+    rejects([&] { parse_legacy_metadata(input); });
     input = metadata(); input.replace(input.find("1.0.0"), 5, "latest");
-    rejects([&] { parse_metadata(input); });
-    rejects([] { parse_metadata("{}"); });
+    rejects([&] { parse_legacy_metadata(input); });
+    rejects([] { parse_legacy_metadata("{}"); });
 }
 void arguments() {
     char name[] = "service", metadata_option[] = "--metadata-file", metadata_path[] = "/run/test/metadata.json";
@@ -76,7 +78,7 @@ void provenance_change() {
     const auto* made = ::mkdtemp(pattern.data()); CHECK(made);
     const std::filesystem::path directory(made);
     struct Cleanup { std::filesystem::path path; ~Cleanup() { std::filesystem::remove_all(path); } } cleanup{directory};
-    auto current = parse_metadata(metadata());
+    auto current = parse_legacy_metadata(metadata());
     Runtime runtime(directory, current);
     current.vdp_contract_sha256 = std::string(64, 'c');
     runtime.update_vdp_metadata(current);
@@ -84,8 +86,9 @@ void provenance_change() {
     rejects([&] { runtime.update_vdp_metadata(current); });
 }
 }
-int main() {
-    try { closed_metadata(); arguments(); lease_deadlines(); token_delivery(); provenance_change(); product_contract_tests(); }
+int main(int argc,char** argv) {
+    if(argc==2 && std::string(argv[1])=="--emit-native-conformance") {native_products_conformance(true);return 0;}
+    try { closed_metadata(); arguments(); lease_deadlines(); token_delivery(); provenance_change(); product_contract_tests(); native_product_contract_tests(); }
     catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
     std::cout << "13 application/product contract groups passed\n";
 }

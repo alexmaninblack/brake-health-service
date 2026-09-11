@@ -48,17 +48,10 @@ v3::AdvisoryRequest request(const Json& j) {
     if (result.canonical_json != encode_json(j)) throw std::runtime_error("ADVISORY_REQUEST_INVALID");
     return result;
 }
-Json metadata_json(const v1::MessageMetadata& m) {
-    return Json{Json::Object{{"unitSystemUid", Json{m.unit_system_uid}},
-        {"unitRole", Json{std::string(m.unit_role == v1::UnitRole::Validation ? "validation" : "production")}},
-        {"schemaVersion", Json{std::int64_t{1}}}, {"serviceVersion", Json{m.service_version}},
-        {"serviceArtifactSha256", Json{m.service_artifact_sha256}}, {"vdpContractVersion", Json{m.vdp_contract_version}},
-        {"vdpContractSha256", Json{m.vdp_contract_sha256}}}};
-}
 v3::DeploymentMetadata metadata(const Json& j) {
-    const auto m = parse_metadata(encode_json(j));
+    const auto m = parse_metadata_binding(j);
     return {m.unit_system_uid, m.unit_role == v1::UnitRole::Validation ? v2::UnitRole::Validation : v2::UnitRole::Production,
-        m.service_version, m.service_artifact_sha256, m.vdp_contract_version, m.vdp_contract_sha256};
+        m.service_version, m.service_artifact_sha256, m.vdp_contract_version, m.vdp_contract_sha256, m.service_instance};
 }
 bool fact_id(const std::string& name) {
     if (name.size() < 38 || !v3::canonical_uuid(name.substr(0, 36), '5') || name[36] != '.') return false;
@@ -138,8 +131,9 @@ Json validate_state(const std::string& bytes, const std::string& epoch) {
 }
 void verify_fact(const std::string& bytes, const std::string& id) {
     const auto j = parse_json(bytes, 16384);
-    if (j.object().size() != 16 || j.at("schemaVersion").integer() != 1 ||
-        j.at("messageType").string() != "BRAKE_ADVISORY_FACT" || j.at("contractVersion").string() != "1.0.0" ||
+    const auto revision = j.at("schemaVersion").integer();
+    if (j.object().size() != 16 || (revision != 1 && revision != 2) ||
+        j.at("messageType").string() != "BRAKE_ADVISORY_FACT" || j.at("contractVersion").string() != (revision == 2 ? "2.0.0" : "1.0.0") ||
         j.at("requestId").string() + '.' + j.at("gatewayState").string() != id) throw std::runtime_error("ADVISORY_FACT_INVALID");
     const auto& c = j.at("content");
     if (c.object().size() != 11 || c.at("operation").string() != "SET" ||
@@ -150,7 +144,14 @@ void verify_fact(const std::string& bytes, const std::string& id) {
     const auto role = j.at("unitRole").string();
     if (role != "VALIDATION" && role != "PRODUCTION") throw std::runtime_error("ADVISORY_FACT_INVALID");
     m.unit_role = role == "VALIDATION" ? v2::UnitRole::Validation : v2::UnitRole::Production;
-    m.service_version = j.at("serviceVersion").string(); m.service_artifact_sha256 = j.at("serviceArtifactSha256").string();
+    m.service_version = j.at("serviceVersion").string();
+    if (revision == 2) {
+        if (j.object().count("serviceArtifactSha256")) throw std::runtime_error("ADVISORY_FACT_INVALID");
+        m.service_instance = parse_service_instance(j.at("serviceInstance"));
+    } else {
+        if (j.object().count("serviceInstance")) throw std::runtime_error("ADVISORY_FACT_INVALID");
+        m.service_artifact_sha256 = j.at("serviceArtifactSha256").string();
+    }
     m.vdp_contract_version = j.at("vdpContractVersion").string(); m.vdp_contract_sha256 = j.at("vdpContractSha256").string();
     const auto r = v3::build_set_request(j.at("producerEpoch").string(), static_cast<std::uint64_t>(j.at("sequence").integer()),
         c.at("decisionId").string(), c.at("issuedAt").string(), m.service_version);
@@ -242,7 +243,7 @@ std::optional<v3::AdvisoryRequest> AdvisoryRuntime::next_request(const v2::Model
     if (sequence == std::numeric_limits<std::int64_t>::max()) throw std::runtime_error("ADVISORY_SEQUENCE_EXHAUSTED");
     const auto r = v3::build_set_request(epoch_, static_cast<std::uint64_t>(sequence), decision, utc_timestamp(now), metadata_value.service_version);
     entries.push_back(Json{Json::Object{{"request", parse_json(r.canonical_json, 2048)},
-        {"metadata", metadata_json(metadata_value)}, {"written", Json{false}}, {"statuses", Json{Json::Object{}}}}});
+        {"metadata", metadata_binding(metadata_value)}, {"written", Json{false}}, {"statuses", Json{Json::Object{}}}}});
     while (entries.size() > 16) entries.erase(entries.begin());
     object(after)["nextSequence"] = Json{sequence + 1};
     commit(before, after); return r;

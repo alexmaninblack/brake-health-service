@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #pragma once
+#include "brake_health/service_identity.hpp"
 
 #include "brake_health/v2/model.hpp"
 
@@ -25,6 +26,8 @@ struct DeploymentMetadata {
     std::string model_artifact_sha256;
     std::string model_config_sha256{kModelConfigSha256};
     std::string assessed_at;
+    // Absent only for explicitly retained legacy records/golden fixtures.
+    std::optional<ServiceInstance> service_instance{};
 };
 
 struct CanonicalMessage {
