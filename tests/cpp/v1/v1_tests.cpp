@@ -190,7 +190,9 @@ void test_frame_validation_and_cadence() {
     value.quality = FrameQuality::Incomplete;
     CHECK(validator.validate(value, std::nullopt, std::nullopt).error == FrameError::Incomplete);
     value = frame(0);
-    value.max_source_age_ms = 251;
+    value.max_source_age_ms = 5000;
+    CHECK(validator.validate(value, std::nullopt, std::nullopt).valid);
+    value.max_source_age_ms = 5001;
     CHECK(validator.validate(value, std::nullopt, std::nullopt).error == FrameError::Stale);
     value.max_source_age_ms = -1;
     CHECK(validator.validate(value, std::nullopt, std::nullopt).error == FrameError::Future);

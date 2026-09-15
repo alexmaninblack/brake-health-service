@@ -3,6 +3,18 @@
 
 # Brake executable integration boundary
 
+## 15 September: authorized local-demo V1 freshness increment
+
+The operator approved a five-second V1 source-age and stream-idle budget for
+the single-Mac demo. Ingress, the V1 domain validator, Solution raw-window
+schemas and the backend validator use the same 5000-ms upper bound. Missing,
+future, mixed-timestamp, duplicate, reordered and physically invalid input
+remains rejected. No source value or timestamp is synthesized. Capture holds,
+window durations, signed-token lifetime and V2/V3 model/advisory timing are not
+changed by this V1 increment. Fixed `KUKSA_INPUT_REJECTED` reason codes identify
+the remaining input boundary without recording signal values or credentials.
+This source change is not a live-qualification claim.
+
 Status: bootstrap and host/domain contracts compiled and tested. The integration
 owner reported a successful real Linux ARM64/gRPC v1 build at
 `81e6afc1563239c8d75fb7183a50546cde7ddc58`. Later source changes still need

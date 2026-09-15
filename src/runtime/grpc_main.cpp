@@ -44,6 +44,15 @@ class Log {
         state("READINESS_CHANGED", mode, reason);
     }
 public:
+    void input_rejected(const std::vector<Signal>& values, std::int64_t wall) {
+        // Fixed quality diagnostics only: no signal values, identifiers or credentials.
+        std::string reason = "COHERENCE_OR_DOMAIN_INVALID";
+        if (std::any_of(values.begin(), values.end(), [](const auto& v) { return !v.valid; })) reason = "MISSING_VALUE";
+        else if (std::any_of(values.begin(), values.end(), [&](const auto& v) { return v.epoch_ms > wall; })) reason = "FUTURE_TIMESTAMP";
+        else if (std::any_of(values.begin(), values.end(), [&](const auto& v) { return wall - v.epoch_ms > brake_health::v1::kMaximumSourceAgeMs; })) reason = "STALE_TIMESTAMP";
+        else if (std::any_of(values.begin(), values.end(), [&](const auto& v) { return v.epoch_ms != values.front().epoch_ms; })) reason = "MIXED_TIMESTAMPS";
+        state("KUKSA_INPUT_REJECTED", "NOT_READY", reason);
+    }
     void analytics(bool ready, const std::string& reason = "NONE") {
         std::lock_guard<std::mutex> lock(capabilities_mutex_); analytics_ = ready; analytics_reason_ = reason; readiness();
     }
@@ -155,7 +164,9 @@ void subscribe(Product& runtime, const ApplicationInputs& inputs, std::atomic<bo
                 std::lock_guard<std::mutex> lock(context_mutex);
                 if (active) active->TryCancel();
             }
-            if (boot_milliseconds() - last_frame.load() > 250) {
+            const auto freshness = functional_profile(BHS_FUNCTIONAL_PROFILE) == FunctionalProfile::V1
+                ? brake_health::v1::kMaximumSourceAgeMs : 250;
+            if (boot_milliseconds() - last_frame.load() > freshness) {
                 try {
                     runtime.disconnect();
                     log.analytics(false, "KUKSA_DATA_UNAVAILABLE");
@@ -209,6 +220,7 @@ void subscribe(Product& runtime, const ApplicationInputs& inputs, std::atomic<bo
         const auto now = boot_milliseconds();
         const auto result = runtime.ingest(values, wall_milliseconds(), now);
         if (!result.valid) {
+            log.input_rejected(values, wall_milliseconds());
             if (!runtime.analytics_ready()) log.analytics(false, "KUKSA_DATA_UNAVAILABLE");
             if (result.event_completed) log.state("WINDOW_COMPLETED", "INCOMPLETE_SOURCE_GAP", "NONE");
             continue;

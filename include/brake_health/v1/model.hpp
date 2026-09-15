@@ -9,6 +9,9 @@
 
 namespace brake_health::v1 {
 
+// Local demo ingress budget; capture duration/cadence and signed leases are unchanged.
+inline constexpr std::int64_t kMaximumSourceAgeMs = 5000;
+
 enum class FrameQuality {
     ValidCompleteFrame,
     Incomplete,

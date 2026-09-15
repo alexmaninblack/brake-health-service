@@ -129,7 +129,7 @@ std::optional<v1::SourceFrame> complete_frame(const std::array<Signal, 6>& value
     // new frame from an old pedal sample and a newly arrived speed sample.
     if (epoch <= previous_epoch_ms) return std::nullopt;
     for (const auto& value : values) {
-        if (!value.valid || !std::isfinite(value.value) || value.epoch_ms != epoch || wall_ms < epoch || wall_ms - epoch > 250) return std::nullopt;
+        if (!value.valid || !std::isfinite(value.value) || value.epoch_ms != epoch || wall_ms < epoch || wall_ms - epoch > v1::kMaximumSourceAgeMs) return std::nullopt;
     }
     if (std::floor(values[4].value) != values[4].value || values[4].value < 0 || values[4].value > 100 ||
         std::floor(values[5].value) != values[5].value || values[5].value < 0 || values[5].value > 100) return std::nullopt;

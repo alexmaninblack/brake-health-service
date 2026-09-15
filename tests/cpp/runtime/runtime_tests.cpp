@@ -79,7 +79,9 @@ void json_bounds() {
 void coherent_input() {
     std::array<Signal, 6> values{{{42, 1000, true}, {-3, 1000, true}, {0, 1000, true}, {0, 1000, true}, {0, 1000, true}, {60, 1000, true}}};
     CHECK(complete_frame(values, 1250, 100, 999));
-    CHECK(!complete_frame(values, 1251, 100, 999));
+    CHECK(complete_frame(values, 1251, 100, 999));
+    CHECK(complete_frame(values, 6000, 100, 999));
+    CHECK(!complete_frame(values, 6001, 100, 999));
     CHECK(!complete_frame(values, 999, 100, 999));
     CHECK(!complete_frame(values, 1000, 100, 1000));
     values[3].epoch_ms = 999;

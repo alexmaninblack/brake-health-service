@@ -97,7 +97,7 @@ FrameValidation FrameValidator::validate(
     if (frame.max_source_age_ms < 0) {
         return {false, FrameError::Future};
     }
-    if (frame.max_source_age_ms > 250) {
+    if (frame.max_source_age_ms > kMaximumSourceAgeMs) {
         return {false, FrameError::Stale};
     }
     if ((previous_source_epoch_ms && frame.source_epoch_ms < *previous_source_epoch_ms) ||
