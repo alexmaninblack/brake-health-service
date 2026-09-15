@@ -200,7 +200,13 @@ void subscribe(Product& runtime, const ApplicationInputs& inputs, std::atomic<bo
     verify_metadata(response);
     log.state("VDP_CONTRACT_ACCEPTED", "READY", "NONE");
     val::SubscribeRequest subscription;
-    for (const auto& path : telemetry_paths()) { auto* entry = subscription.add_entries(); entry->set_path(path); entry->set_view(val::VIEW_CURRENT_VALUE); }
+    for (const auto& path : telemetry_paths()) {
+        auto* entry = subscription.add_entries();
+        entry->set_path(path);
+        entry->set_view(val::VIEW_CURRENT_VALUE);
+        // KUKSA 0.5.0 Subscribe consumes fields, not the Get view expansion.
+        entry->add_fields(val::FIELD_VALUE);
+    }
     auto stream_context = make_context();
     auto reader = stub->Subscribe(stream_context.get(), subscription);
     struct Cancel {

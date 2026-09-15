@@ -240,3 +240,14 @@ those operator-visible states. v2/v3 runtime and advisory composition are now
 implemented in the [current product profiles](runtime-profiles.md). The
 [earlier wiring audit](runtime-v2-v3-audit.md) is historical gap evidence, not
 a description of the current source.
+# Native subscription correction — 15 September 2026
+
+The real Brake42 trial authenticated and passed metadata validation but emitted
+`KUKSA_INPUT_REJECTED: MISSING_VALUE`. The pinned KUKSA 0.5.0
+[`Subscribe` implementation](https://github.com/eclipse-kuksa/kuksa-databroker/blob/30e5c13abc496d0b39aaa6c25acebb088b9902e3/databroker/src/grpc/kuksa_val_v1/val.rs)
+builds subscriptions from `entry.fields`; unlike `Get`, it does not expand
+`entry.view`. Telemetry subscription now requests `FIELD_VALUE` explicitly
+for the same exact paths. No authorization scope, sampling quality rule or
+synthetic fallback changes. The source guard verifies request construction;
+the ARM64 compile and native trial provide separate evidence. Advisory's
+separate subscription is outside this V1 trial and must be checked before V3.
