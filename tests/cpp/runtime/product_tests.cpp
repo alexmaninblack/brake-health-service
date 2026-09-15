@@ -185,6 +185,11 @@ void profile_one_no_model() {
     CHECK(!product.model_state()); CHECK(!product.next_request(epoch));
     CHECK(!std::filesystem::exists(directory.path / "model-state"));
     CHECK(!std::filesystem::exists(directory.path / "advisory-state"));
+    std::vector<Signal> input{{19, epoch, true}, {0, epoch, true}, {0, epoch, true},
+        {0, epoch, true}, {0, epoch, true}, {0, epoch, true}};
+    CHECK(product.ingest(input, epoch + 5000, 0).valid);
+    for (auto& value : input) value.epoch_ms += 50;
+    CHECK(!product.ingest(input, epoch + 5051, 50).valid);
 }
 v2::ModelState active_model() {
     auto model = v2::initial_state(random_uuid());

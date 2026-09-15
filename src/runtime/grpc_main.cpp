@@ -319,6 +319,7 @@ void advisory_session(Product& runtime, const ApplicationInputs& inputs, std::at
     observe(entry);
     val::SubscribeRequest subscribe_request;
     auto* wanted = subscribe_request.add_entries(); wanted->set_path(brake_health::v3::kStatusPath); wanted->set_view(val::VIEW_CURRENT_VALUE);
+    wanted->add_fields(val::FIELD_VALUE);
     auto reader_context = std::make_shared<grpc::ClientContext>(); reader_context->AddMetadata("authorization", "Bearer " + token);
     {
         std::lock_guard<std::mutex> lock(contexts_mutex); stream = reader_context;

@@ -47,7 +47,8 @@ ProductObservation Product::ingest(const std::vector<Signal>& values, std::int64
         ready_ = false;
     };
     if (std::any_of(values.begin(), values.end(), [](const auto& value) { return !value.valid; }) ||
-        (coherent && (source < previous_epoch_ || source > wall || wall - source > 250))) {
+        (coherent && (source < previous_epoch_ || source > wall || wall - source >
+            (profile_ == FunctionalProfile::V1 ? v1::kMaximumSourceAgeMs : 250)))) {
         source_gap(); return result;
     }
     if (profile_ == FunctionalProfile::V1) {
