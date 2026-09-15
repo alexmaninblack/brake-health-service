@@ -43,7 +43,7 @@ private:
     v2::CompletedEpisode episode_;
     std::optional<std::int64_t> previous_source_, previous_mono_, trigger_hold_, clear_hold_, suppression_hold_;
     std::int64_t event_start_{}, active_start_{}, active_elapsed_{}, post_start_{};
-    std::uint64_t frames_{};
+    std::optional<std::int64_t> retained_bucket_;
     bool suppressed_{};
 };
 }  // namespace brake_health::runtime

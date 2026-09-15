@@ -240,7 +240,8 @@ void subscribe(Product& runtime, const ApplicationInputs& inputs, std::atomic<bo
             if (a.status == brake_health::v2::ProcessStatus::Produced) log.state("ASSESSMENT_CREATED", "READY", "NONE");
             if (a.event_created) log.state("CONDITION_BAND_CHANGED", "INSPECTION_RECOMMENDED", "NONE");
             if (a.status == brake_health::v2::ProcessStatus::SkippedInputQuality)
-                log.state("ASSESSMENT_SKIPPED_INPUT_QUALITY", "READY", "INPUT_QUALITY_INSUFFICIENT");
+                log.state("ASSESSMENT_SKIPPED_INPUT_QUALITY", "READY",
+                    a.skip_reason ? brake_health::v2::skip_reason_name(*a.skip_reason) : "INPUT_QUALITY_INSUFFICIENT");
             if (a.status == brake_health::v2::ProcessStatus::DerivedOutboxFull) log.state("DERIVED_OUTBOX_FULL", "OVERFLOW", "NONE");
         }
     }

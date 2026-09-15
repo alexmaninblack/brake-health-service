@@ -300,12 +300,35 @@ void model_capture_retrigger_and_limit() {
         }
     }
 }
+void model_capture_retains_ten_hz_at_supported_source_rates() {
+    std::vector<std::size_t> active_counts;
+    for (const int hz : {20, 30}) {
+        ModelCapture capture;
+        std::optional<v2::CompletedEpisode> completed;
+        for (int i = 0; i < hz * 10; ++i) {
+            const auto time = i * 1000 / hz;
+            auto input = sample(time);
+            std::array<Signal, 12> values;
+            std::copy(input.begin(), input.end(), values.begin());
+            const auto frame = complete_model_frame(values, epoch + time + 20, time, epoch + time - 1);
+            CHECK(frame);
+            if (auto result = capture.ingest(*frame)) completed = result;
+        }
+        CHECK(completed && completed->terminal_state == v2::TerminalState::Complete);
+        active_counts.push_back(static_cast<std::size_t>(std::count_if(
+            completed->samples.begin(), completed->samples.end(),
+            [](const auto& value) { return value.phase == v2::Phase::Active; })));
+    }
+    CHECK(active_counts[0] == 33);
+    CHECK(active_counts[1] == 33);
+}
 }
 void product_contract_tests() {
     adapter_contract(); product_upgrade_and_delivery(); advisory_overflow_and_conflict(); profile_one_no_model();
     advisory_journal_recovery(); advisory_corrupt_journal_preserved();
     invalid_product_frame_ends_capture();
     model_capture_retrigger_and_limit();
+    model_capture_retains_ten_hz_at_supported_source_rates();
 }
 
 void native_products_conformance(bool emit) {

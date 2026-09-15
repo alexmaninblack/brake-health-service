@@ -74,7 +74,12 @@ std::optional<v2::CompletedEpisode> ModelCapture::ingest(const ModelFrame& f) {
         return abort(v2::TerminalState::IncompleteSourceGap);
     }
     previous_source_ = f.source_epoch_ms; previous_mono_ = f.monotonic_ms;
-    const bool retained = ++frames_ % 3 == 0;
+    // Retain one actual sample per 100-ms source-time bucket. The input can
+    // run at 20 or 30 Hz; counting every third frame silently changes the
+    // model's specified 10-Hz cadence. Never interpolate missing samples.
+    const auto bucket = f.source_epoch_ms / 100;
+    const bool retained = !retained_bucket_ || bucket != *retained_bucket_;
+    if (retained) retained_bucket_ = bucket;
     const bool trigger = f.signals.speed_milli_kph >= 10000 && f.signals.brake_effort_milli_percent >= 50000;
     const bool clear = f.signals.brake_effort_milli_percent < 10000 || f.signals.speed_milli_kph < 500;
     if (suppressed_) {
