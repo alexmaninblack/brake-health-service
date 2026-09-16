@@ -438,7 +438,8 @@ ConditionBand parse_band(const std::string& value) {
 }
 
 void validate_state(const ModelState& state) {
-    if (state.wear_index > 100U || state.condition_score != 100U - state.wear_index ||
+    if (!supported_model_config(state.model_config_sha256) ||
+        state.wear_index > 100U || state.condition_score != 100U - state.wear_index ||
         state.condition_band != band_for_score(state.condition_score) ||
         !uuid_with_version(state.producer_epoch, '4') ||
         state.next_advisory_sequence == 0U || state.recent_source_event_ids.size() > 64U ||
@@ -604,7 +605,7 @@ std::string state_json(const ModelState& state) {
         ",\"generation\":" + std::to_string(state.generation) +
         ",\"lastAppliedSourceEventId\":" + last_event +
         ",\"lastAssessmentId\":" + last_assessment +
-        ",\"modelConfigSha256\":\"" + kModelConfigSha256 + "\"" +
+        ",\"modelConfigSha256\":\"" + state.model_config_sha256 + "\"" +
         ",\"modelId\":\"brake-condition-demo-v1\"" +
         ",\"modelVersion\":\"1.0.0\"" +
         ",\"nextAdvisorySequence\":" + std::to_string(state.next_advisory_sequence) +
@@ -620,11 +621,12 @@ ModelState parse_state_json(std::string_view json) {
         parse_unsigned(json, "schemaVersion") != 1U ||
         parse_simple_string(json, "modelId") != kModelId ||
         parse_simple_string(json, "modelVersion") != kModelVersion ||
-        parse_simple_string(json, "modelConfigSha256") != kModelConfigSha256 ||
+        !supported_model_config(parse_simple_string(json, "modelConfigSha256")) ||
         parse_simple_string(json, "profile") != kModelProfile) {
         throw std::invalid_argument("unknown v2 state schema or model identity");
     }
     ModelState state;
+    state.model_config_sha256 = parse_simple_string(json, "modelConfigSha256");
     state.generation = parse_unsigned(json, "generation");
     const std::uint64_t wear = parse_unsigned(json, "wearIndex");
     const std::uint64_t score = parse_unsigned(json, "conditionScore");

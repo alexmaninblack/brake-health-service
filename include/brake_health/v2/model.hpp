@@ -16,7 +16,15 @@ inline constexpr const char* kModelId = "brake-condition-demo-v1";
 inline constexpr const char* kModelVersion = "1.0.0";
 inline constexpr const char* kModelProfile = "DEMO_PRECONDITIONED";
 inline constexpr const char* kModelConfigSha256 =
+    "ea74cda63116d1f9fc969ec292aedb7cd0935ae899775bd8bcd73c230190e028";
+inline constexpr const char* kLegacyModelConfigSha256 =
     "7749dff2dd340f05ae5f3c90912d65007ad48c52a5136ab0e165a83109d55f53";
+inline constexpr std::int64_t kMaximumSourceAgeMs = 5000;
+inline constexpr std::int64_t kMaximumSignalSkewMs = 100;
+inline constexpr std::int64_t kMaximumInputGapMs = 5000;
+inline bool supported_model_config(const std::string& digest) {
+    return digest == kModelConfigSha256 || digest == kLegacyModelConfigSha256;
+}
 
 enum class ConditionBand { Good, Monitor, InspectionRecommended };
 
@@ -30,6 +38,7 @@ struct ModelState {
     std::vector<std::string> recent_source_event_ids;
     std::string producer_epoch;
     std::uint64_t next_advisory_sequence{1};
+    std::string model_config_sha256{kModelConfigSha256};
 };
 
 struct FeatureVector {

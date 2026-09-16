@@ -86,9 +86,15 @@ void adapter_contract() {
     const auto input = sample(4000); std::array<Signal, 12> values;
     std::copy(input.begin(), input.end(), values.begin());
     CHECK(complete_model_frame(values, epoch + 4250, 4000, epoch + 3999));
-    CHECK(!complete_model_frame(values, epoch + 4251, 4000, epoch + 3999));
+    CHECK(complete_model_frame(values, epoch + 9000, 4000, epoch + 3999));
+    CHECK(!complete_model_frame(values, epoch + 9001, 4000, epoch + 3999));
     values[11].valid = false; CHECK(!complete_model_frame(values, epoch + 4020, 4000, epoch + 3999));
-    values[11].valid = true; --values[11].epoch_ms; CHECK(!complete_model_frame(values, epoch + 4020, 4000, epoch + 3999));
+    values[11].valid = true; --values[11].epoch_ms;
+    const auto mixed=complete_model_frame(values, epoch+4020,4000,epoch+3999);
+    CHECK(mixed && mixed->source_age_ms==21 && mixed->source_epoch_ms==epoch+4000);
+    values[11].epoch_ms=epoch+3900;CHECK(complete_model_frame(values,epoch+4020,4000,epoch+3999));
+    values[11].epoch_ms=epoch+3899;CHECK(!complete_model_frame(values,epoch+4020,4000,epoch+3999));
+    values[11].epoch_ms=epoch+4021;CHECK(!complete_model_frame(values,epoch+4020,4000,epoch+3999));
     rejects([] { encode_json(Json{0.25}); });
 }
 void product_upgrade_and_delivery() {

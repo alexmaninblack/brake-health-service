@@ -233,7 +233,7 @@ OutboxEntry verified_outbox_message(
         string_value(encoded, assessment ? "assessmentId" : "eventId") != manifest_id ||
         string_value(encoded, "messageType") != message_type ||
         string_value(encoded, "contentSha256") != content_sha ||
-        string_value(encoded, "modelConfigSha256") != kModelConfigSha256 ||
+        !supported_model_config(string_value(encoded, "modelConfigSha256")) ||
         message_idempotency_key_sha256(unit_uid, message_type, manifest_id) !=
             idempotency_sha) {
         throw std::runtime_error("outbox message identity conflicts with bundle manifest");
@@ -931,6 +931,9 @@ ProcessResult StateStore::process(
         }
         DerivedMessages messages = build_messages(metadata, episode, *evaluation.assessment);
         ModelState after = evaluation.next_state;
+        // Timing-only amendment: preserve wear, identity, ledger and outbox.
+        // Adopt the new profile only in the existing atomic accepted-result txn.
+        after.model_config_sha256 = kModelConfigSha256;
         after.last_applied_source_event_id = episode.source_event_id;
         after.last_assessment_id = messages.assessment.id;
         after.recent_source_event_ids.push_back(episode.source_event_id);

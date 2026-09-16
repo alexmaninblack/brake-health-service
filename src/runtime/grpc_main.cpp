@@ -44,6 +44,13 @@ class Log {
         state("READINESS_CHANGED", mode, reason);
     }
 public:
+    void input_timing(const std::vector<Signal>& values) {
+        const auto bounds=std::minmax_element(values.begin(),values.end(),
+            [](const auto& a,const auto& b){return a.epoch_ms<b.epoch_ms;});
+        const auto skew=bounds.second->epoch_ms-bounds.first->epoch_ms;
+        state("KUKSA_INPUT_TIMING","OBSERVED",skew==0?"SKEW_ZERO":
+            skew<=10?"SKEW_UP_TO_10MS":skew<=100?"SKEW_UP_TO_100MS":"SKEW_EXCEEDS_100MS");
+    }
     void input_rejected(const std::vector<Signal>& values, std::int64_t wall) {
         // Fixed quality diagnostics only: no signal values, identifiers or credentials.
         std::string reason = "COHERENCE_OR_DOMAIN_INVALID";
@@ -165,7 +172,7 @@ void subscribe(Product& runtime, const ApplicationInputs& inputs, std::atomic<bo
                 if (active) active->TryCancel();
             }
             const auto freshness = functional_profile(BHS_FUNCTIONAL_PROFILE) == FunctionalProfile::V1
-                ? brake_health::v1::kMaximumSourceAgeMs : 250;
+                ? brake_health::v1::kMaximumSourceAgeMs : brake_health::v2::kMaximumSourceAgeMs;
             if (boot_milliseconds() - last_frame.load() > freshness) {
                 try {
                     runtime.disconnect();
@@ -224,6 +231,7 @@ void subscribe(Product& runtime, const ApplicationInputs& inputs, std::atomic<bo
             values[index] = signal(item.entry(), index);
         }
         const auto now = boot_milliseconds();
+        if (functional_profile(BHS_FUNCTIONAL_PROFILE)!=FunctionalProfile::V1 && seen.size()==values.size()) log.input_timing(values);
         const auto result = runtime.ingest(values, wall_milliseconds(), now);
         if (!result.valid) {
             log.input_rejected(values, wall_milliseconds());

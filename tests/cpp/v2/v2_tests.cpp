@@ -136,15 +136,15 @@ DeploymentMetadata metadata() {
 }
 
 const char* golden_assessment_json() {
-    return R"JSON({"assessedAt":"2026-08-22T12:00:08.000Z","assessmentId":"d49ce480-a1ef-5cd2-9e05-fd3783bfd1de","content":{"activeSampleCount":30,"conditionScore":38,"currentBand":"INSPECTION_RECOMMENDED","episodeLoadBps":6750,"features":{"activeDurationBps":6000,"activeDurationSeconds":3,"meanBrakeEffortBps":5000,"meanBrakeEffortPercent":75,"peakDecelerationBps":8000,"peakDecelerationMps2":6.4,"speedReductionBps":8000,"speedReductionKph":32,"wheelDispersionBps":6000,"wheelDispersionRatio":0.09},"previousBand":"MONITOR","quality":"VALID_DEMO_SYNTHETIC","sourceWindowEndTimestamp":"2026-08-22T12:00:07.900Z","sourceWindowStartTimestamp":"2026-08-22T12:00:00.000Z","straightActiveSampleCount":30,"wearIncrement":8,"wearIndexAfter":62,"wearIndexBefore":54},"contentSha256":"b1b5858b114898519fa0f4fe600864727df3c9f28c8228b182661ab6f183b932","contractVersion":"1.0.0","messageType":"BRAKE_HEALTH_ASSESSMENT","modelArtifactSha256":"3333333333333333333333333333333333333333333333333333333333333333","modelConfigSha256":"7749dff2dd340f05ae5f3c90912d65007ad48c52a5136ab0e165a83109d55f53","modelId":"brake-condition-demo-v1","modelVersion":"1.0.0","provenance":"DEMO_SYNTHETIC","schemaVersion":1,"serviceArtifactSha256":"3333333333333333333333333333333333333333333333333333333333333333","serviceVersion":"2.0.0","sourceEventId":"4cba2d80-c04a-4d24-9f03-f4a85d56da13","unitRole":"VALIDATION","unitSystemUid":"demo-unit-validation-001","vdpContractSha256":"2222222222222222222222222222222222222222222222222222222222222222","vdpContractVersion":"2.0.0"})JSON";
+    return R"JSON({"assessedAt":"2026-08-22T12:00:08.000Z","assessmentId":"a8ff857c-a7ca-5a59-a3fc-4e4ae90ffe3a","content":{"activeSampleCount":30,"conditionScore":38,"currentBand":"INSPECTION_RECOMMENDED","episodeLoadBps":6750,"features":{"activeDurationBps":6000,"activeDurationSeconds":3,"meanBrakeEffortBps":5000,"meanBrakeEffortPercent":75,"peakDecelerationBps":8000,"peakDecelerationMps2":6.4,"speedReductionBps":8000,"speedReductionKph":32,"wheelDispersionBps":6000,"wheelDispersionRatio":0.09},"previousBand":"MONITOR","quality":"VALID_DEMO_SYNTHETIC","sourceWindowEndTimestamp":"2026-08-22T12:00:07.900Z","sourceWindowStartTimestamp":"2026-08-22T12:00:00.000Z","straightActiveSampleCount":30,"wearIncrement":8,"wearIndexAfter":62,"wearIndexBefore":54},"contentSha256":"b1b5858b114898519fa0f4fe600864727df3c9f28c8228b182661ab6f183b932","contractVersion":"1.0.0","messageType":"BRAKE_HEALTH_ASSESSMENT","modelArtifactSha256":"3333333333333333333333333333333333333333333333333333333333333333","modelConfigSha256":"ea74cda63116d1f9fc969ec292aedb7cd0935ae899775bd8bcd73c230190e028","modelId":"brake-condition-demo-v1","modelVersion":"1.0.0","provenance":"DEMO_SYNTHETIC","schemaVersion":1,"serviceArtifactSha256":"3333333333333333333333333333333333333333333333333333333333333333","serviceVersion":"2.0.0","sourceEventId":"4cba2d80-c04a-4d24-9f03-f4a85d56da13","unitRole":"VALIDATION","unitSystemUid":"demo-unit-validation-001","vdpContractSha256":"2222222222222222222222222222222222222222222222222222222222222222","vdpContractVersion":"2.0.0"})JSON";
 }
 
 const char* golden_event_json() {
-    return R"JSON({"assessmentId":"d49ce480-a1ef-5cd2-9e05-fd3783bfd1de","content":{"conditionScore":38,"currentBand":"INSPECTION_RECOMMENDED","effectiveAt":"2026-08-22T12:00:07.900Z","eventType":"BRAKE_CONDITION_BAND_CHANGED","previousBand":"MONITOR","quality":"VALID_DEMO_SYNTHETIC","reasonCode":"SYNTHETIC_ACCUMULATED_STRESS_THRESHOLD"},"contentSha256":"df168403b59741dc61edb630312a15a658f45bd45a427c32d41f0952fc976001","contractVersion":"1.0.0","eventId":"7f464ca1-c4a6-5438-90d0-2a9c9b9f9862","messageType":"BRAKE_HEALTH_EVENT","modelConfigSha256":"7749dff2dd340f05ae5f3c90912d65007ad48c52a5136ab0e165a83109d55f53","modelId":"brake-condition-demo-v1","modelVersion":"1.0.0","provenance":"DEMO_SYNTHETIC","schemaVersion":1,"serviceArtifactSha256":"3333333333333333333333333333333333333333333333333333333333333333","serviceVersion":"2.0.0","sourceEventId":"4cba2d80-c04a-4d24-9f03-f4a85d56da13","unitRole":"VALIDATION","unitSystemUid":"demo-unit-validation-001"})JSON";
+    return R"JSON({"assessmentId":"a8ff857c-a7ca-5a59-a3fc-4e4ae90ffe3a","content":{"conditionScore":38,"currentBand":"INSPECTION_RECOMMENDED","effectiveAt":"2026-08-22T12:00:07.900Z","eventType":"BRAKE_CONDITION_BAND_CHANGED","previousBand":"MONITOR","quality":"VALID_DEMO_SYNTHETIC","reasonCode":"SYNTHETIC_ACCUMULATED_STRESS_THRESHOLD"},"contentSha256":"df168403b59741dc61edb630312a15a658f45bd45a427c32d41f0952fc976001","contractVersion":"1.0.0","eventId":"5d6f208d-b041-566e-b91f-c847e35667a3","messageType":"BRAKE_HEALTH_EVENT","modelConfigSha256":"ea74cda63116d1f9fc969ec292aedb7cd0935ae899775bd8bcd73c230190e028","modelId":"brake-condition-demo-v1","modelVersion":"1.0.0","provenance":"DEMO_SYNTHETIC","schemaVersion":1,"serviceArtifactSha256":"3333333333333333333333333333333333333333333333333333333333333333","serviceVersion":"2.0.0","sourceEventId":"4cba2d80-c04a-4d24-9f03-f4a85d56da13","unitRole":"VALIDATION","unitSystemUid":"demo-unit-validation-001"})JSON";
 }
 
 const char* golden_state_json() {
-    return R"JSON({"conditionBand":"INSPECTION_RECOMMENDED","conditionScore":38,"generation":1,"lastAppliedSourceEventId":"4cba2d80-c04a-4d24-9f03-f4a85d56da13","lastAssessmentId":"d49ce480-a1ef-5cd2-9e05-fd3783bfd1de","modelConfigSha256":"7749dff2dd340f05ae5f3c90912d65007ad48c52a5136ab0e165a83109d55f53","modelId":"brake-condition-demo-v1","modelVersion":"1.0.0","nextAdvisorySequence":1,"producerEpoch":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","profile":"DEMO_PRECONDITIONED","recentSourceEventIds":["4cba2d80-c04a-4d24-9f03-f4a85d56da13"],"schemaVersion":1,"wearIndex":62})JSON";
+    return R"JSON({"conditionBand":"INSPECTION_RECOMMENDED","conditionScore":38,"generation":1,"lastAppliedSourceEventId":"4cba2d80-c04a-4d24-9f03-f4a85d56da13","lastAssessmentId":"a8ff857c-a7ca-5a59-a3fc-4e4ae90ffe3a","modelConfigSha256":"ea74cda63116d1f9fc969ec292aedb7cd0935ae899775bd8bcd73c230190e028","modelId":"brake-condition-demo-v1","modelVersion":"1.0.0","nextAdvisorySequence":1,"producerEpoch":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","profile":"DEMO_PRECONDITIONED","recentSourceEventIds":["4cba2d80-c04a-4d24-9f03-f4a85d56da13"],"schemaVersion":1,"wearIndex":62})JSON";
 }
 
 Evaluation evaluate_golden(const CompletedEpisode& episode = golden_episode()) {
@@ -271,11 +271,11 @@ void test_input_quality_priority_and_boundaries() {
 
     value = golden_episode();
     value.samples[30].complete = false;
-    value.samples[30].max_source_age_ms = 251;
+    value.samples[30].max_source_age_ms = 5001;
     expect_skip(value, SkipReason::MissingRequiredSignal);
 
     value = golden_episode();
-    value.samples[30].max_source_age_ms = 251;
+    value.samples[30].max_source_age_ms = 5001;
     value.samples[30].finite = false;
     expect_skip(value, SkipReason::StaleSample);
 
@@ -348,25 +348,25 @@ void test_golden_features_messages_and_uuid() {
     CHECK(assessment.source_window_end_timestamp == "2026-08-22T12:00:07.900Z");
 
     const DerivedMessages messages = build_messages(metadata(), episode, assessment);
-    CHECK(messages.assessment.id == "d49ce480-a1ef-5cd2-9e05-fd3783bfd1de");
+    CHECK(messages.assessment.id == "a8ff857c-a7ca-5a59-a3fc-4e4ae90ffe3a");
     CHECK(messages.assessment.content_sha256 ==
           "b1b5858b114898519fa0f4fe600864727df3c9f28c8228b182661ab6f183b932");
     CHECK(messages.assessment.idempotency_key_sha256 ==
-          "c3702f402b9efacdddb159d10547f1b3825417bb6a32c37459ed0582dfc3c42e");
+          "84fcd9283e033b5858056c1a6ed7756ae7811d580183d79eb1b66c21be338c4a");
     CHECK(messages.assessment.canonical_json.size() == 1529U);
     CHECK(messages.assessment.canonical_json == golden_assessment_json());
     CHECK(brake_health::v1::sha256_hex(messages.assessment.canonical_json) ==
-          "675dd244e17252b5d162ea213bf8e558633fcfc8ebe9ffa98ea43878b5de7f46");
+          "4bb1d6d9a8a5577f9338f300f537d8a20471cb59b38dd994c51ba4ebe289c629");
     CHECK(messages.event.has_value());
-    CHECK(messages.event->id == "7f464ca1-c4a6-5438-90d0-2a9c9b9f9862");
+    CHECK(messages.event->id == "5d6f208d-b041-566e-b91f-c847e35667a3");
     CHECK(messages.event->content_sha256 ==
           "df168403b59741dc61edb630312a15a658f45bd45a427c32d41f0952fc976001");
     CHECK(messages.event->idempotency_key_sha256 ==
-          "50aeb7907ec339cbe54328fc075b28521811e14caec41ebe394e5e397b578966");
+          "030574864e7e8f7003c5b38e7dfaf7a254a156c5d90e44bec294e31ebd50b092");
     CHECK(messages.event->canonical_json.size() == 947U);
     CHECK(messages.event->canonical_json == golden_event_json());
     CHECK(brake_health::v1::sha256_hex(messages.event->canonical_json) ==
-          "76e1b72b5eac816eea351c1b17414bf171ac4e7db82616ab40d366e667f8f42a");
+          "2e1983ca56949df524b140b69aaa9871ac90c5d1207f915b0830cff0fc1427ce");
 
     CHECK(uuid_v5("6ba7b810-9dad-11d1-80b4-00c04fd430c8", {"www.widgets.com"}) ==
           "21f7f8de-8051-5b89-8680-0195ef798b6a");
@@ -410,6 +410,11 @@ void test_state_schema_and_preserved_v3_fields() {
     CHECK(decoded.producer_epoch == "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
     CHECK(decoded.next_advisory_sequence == 42U);
     CHECK(state_json(decoded) == encoded);
+    auto legacy=decoded;legacy.model_config_sha256=kLegacyModelConfigSha256;
+    const auto legacy_bytes=state_json(legacy);
+    const auto restored=parse_state_json(legacy_bytes);
+    CHECK(state_json(restored)==legacy_bytes);
+    CHECK(restored.next_advisory_sequence==42U && restored.wear_index==decoded.wear_index);
     check_throws<std::invalid_argument>([&] { parse_state_json(encoded + " "); });
 
     std::string wrong = encoded;
@@ -428,6 +433,37 @@ void test_state_schema_and_preserved_v3_fields() {
     duplicate.insert(duplicate.size() - 1U, ",\"generation\":0");
     check_throws<std::invalid_argument>([&] { parse_state_json(duplicate); });
     check_throws<std::invalid_argument>([] { parse_state_json("{}"); });
+}
+
+void test_timing_profile_preserves_state_and_outbox() {
+    TemporaryDirectory temporary("timing-profile");
+    const auto state_root=temporary.path()/"state", outbox_root=temporary.path()/"outbox";
+    const std::string epoch="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    ModelState before;std::vector<OutboxEntry> pending;
+    {
+        StateStore store(state_root,outbox_root,epoch);
+        CHECK(store.process(golden_episode(),metadata()).status==ProcessStatus::Produced);
+        before=store.state();before.model_config_sha256=kLegacyModelConfigSha256;
+        before.next_advisory_sequence=42;
+        overwrite_state_and_rebind_identity_ledger(state_root,before);
+        pending=store.inventory();CHECK(pending.size()==2);
+    }
+    StateStore recovered(state_root,outbox_root,epoch);CHECK(recovered.ready());
+    CHECK(state_json(recovered.state())==state_json(before));
+    CHECK(recovered.process(golden_episode(),metadata()).status==ProcessStatus::Duplicate);
+    CHECK(state_json(recovered.state())==state_json(before));
+    auto invalid=golden_episode(uuid4_for(2));invalid.terminal_state=TerminalState::IncompleteSourceGap;
+    CHECK(recovered.process(invalid,metadata()).status==ProcessStatus::SkippedInputQuality);
+    CHECK(state_json(recovered.state())==state_json(before));
+    CHECK(recovered.process(golden_episode(uuid4_for(3)),metadata()).status==ProcessStatus::Produced);
+    const auto after=recovered.state();
+    CHECK(after.model_config_sha256==kModelConfigSha256 && after.generation==before.generation+1);
+    CHECK(after.wear_index>=before.wear_index && after.next_advisory_sequence==42 && after.producer_epoch==epoch);
+    for(const auto& old:pending) {
+        bool found=false;for(const auto& retained:recovered.inventory())
+            if(retained.id==old.id){CHECK(retained.canonical_json==old.canonical_json);found=true;}
+        CHECK(found);
+    }
 }
 
 void test_store_first_start_duplicate_and_ack() {
@@ -597,13 +633,13 @@ void test_corruption_and_generation_conflict_fail_closed() {
 
 void test_manifest_inventory_and_config_fail_closed() {
     const std::vector<std::pair<std::string, std::string>> event_fields_to_remove = {
-        {"eventId", "7f464ca1-c4a6-5438-90d0-2a9c9b9f9862"},
+        {"eventId", "5d6f208d-b041-566e-b91f-c847e35667a3"},
         {"eventContentSha256",
          "df168403b59741dc61edb630312a15a658f45bd45a427c32d41f0952fc976001"},
         {"eventIdempotencyKeySha256",
-         "50aeb7907ec339cbe54328fc075b28521811e14caec41ebe394e5e397b578966"},
+         "030574864e7e8f7003c5b38e7dfaf7a254a156c5d90e44bec294e31ebd50b092"},
         {"eventMessageSha256",
-         "76e1b72b5eac816eea351c1b17414bf171ac4e7db82616ab40d366e667f8f42a"}};
+         "2e1983ca56949df524b140b69aaa9871ac90c5d1207f915b0830cff0fc1427ce"}};
     for (std::size_t index = 0U; index < event_fields_to_remove.size(); ++index) {
         TemporaryDirectory malformed_event("malformed-event-tuple-" + std::to_string(index));
         bool injected = false;
@@ -883,6 +919,7 @@ int main() {
     run("golden features messages and uuid", test_golden_features_messages_and_uuid);
     run("state schema and preserved v3 fields", test_state_schema_and_preserved_v3_fields);
     run("store first start duplicate and ack", test_store_first_start_duplicate_and_ack);
+    run("timing profile preserves state and outbox", test_timing_profile_preserves_state_and_outbox);
     run("ack conflict quarantine", test_ack_conflict_quarantine);
     run("interrupted transaction recovery", test_interrupted_transaction_recovery);
     run("corruption and generation conflict", test_corruption_and_generation_conflict_fail_closed);

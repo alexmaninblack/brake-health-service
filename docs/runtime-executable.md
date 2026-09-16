@@ -3,6 +3,20 @@
 
 # Brake executable integration boundary
 
+## 16 September: approved V2/V3 timing amendment
+
+V2/V3 allow at most 5000 ms source age/stream idle/input gap, independently of
+at most 100 ms skew across the twelve required signal timestamps (one retained
+10-Hz period). The sample uses the latest actual timestamp and records age of
+the oldest value. No values/timestamps are rewritten or interpolated. Fixed
+timing diagnostic buckets expose the observed spread without telemetry values.
+The model profile digest changes; wear mathematics, Safe Stop and advisory
+leases do not. The explicitly supported previous profile remains readable:
+state retains its original digest until the next accepted atomic model update;
+wear, generation, producer epoch, sequence and duplicate ledger are retained.
+Historical outbox bytes keep their original profile/provenance and checksums.
+Unknown profiles fail closed. Local tests are not live qualification.
+
 ## 15 September: authorized local-demo V1 freshness increment
 
 The operator approved a five-second V1 source-age and stream-idle budget for

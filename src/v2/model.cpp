@@ -192,7 +192,7 @@ Evaluation SyntheticModel::evaluate(
         return skipped(current, SkipReason::MissingRequiredSignal);
     }
     for (const Sample& sample : episode.samples) {
-        if (sample.max_source_age_ms < 0 || sample.max_source_age_ms > 250) {
+        if (sample.max_source_age_ms < 0 || sample.max_source_age_ms > kMaximumSourceAgeMs) {
             return skipped(current, SkipReason::StaleSample);
         }
     }
@@ -224,7 +224,7 @@ Evaluation SyntheticModel::evaluate(
         active.push_back(&sample);
         if (sample.signals.speed_milli_kph >= 10000 &&
             std::llabs(sample.signals.steering_milli_degree) <= 5000 &&
-            sample.max_source_age_ms <= 250) {
+            sample.max_source_age_ms <= kMaximumSourceAgeMs) {
             straight.push_back(&sample);
         }
     }

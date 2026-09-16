@@ -39,16 +39,18 @@ ProductObservation Product::ingest(const std::vector<Signal>& values, std::int64
     std::lock_guard<std::mutex> lock(mutex_);
     ProductObservation result;
     if (values.size() != (profile_ == FunctionalProfile::V1 ? 6U : 12U)) throw std::invalid_argument("SIGNAL_COUNT_INVALID");
-    const auto source = values.front().epoch_ms;
-    const bool coherent = std::all_of(values.begin(), values.end(), [source](const auto& value) { return value.epoch_ms == source; });
+    const auto bounds=std::minmax_element(values.begin(),values.end(),
+        [](const auto& a,const auto& b){return a.epoch_ms<b.epoch_ms;});
+    const auto oldest=bounds.first->epoch_ms, source=bounds.second->epoch_ms;
+    const bool coherent = source-oldest <= (profile_==FunctionalProfile::V1 ? 0 : v2::kMaximumSignalSkewMs);
     const auto source_gap = [&] {
         legacy_.disconnect();
         result.event_completed = capture_.abort(v2::TerminalState::IncompleteSourceGap).has_value();
         ready_ = false;
     };
     if (std::any_of(values.begin(), values.end(), [](const auto& value) { return !value.valid; }) ||
-        (coherent && (source < previous_epoch_ || source > wall || wall - source >
-            (profile_ == FunctionalProfile::V1 ? v1::kMaximumSourceAgeMs : 250)))) {
+        (coherent && (source < previous_epoch_ || source > wall || oldest<0 || wall - oldest >
+            (profile_ == FunctionalProfile::V1 ? v1::kMaximumSourceAgeMs : v2::kMaximumSourceAgeMs)))) {
         source_gap(); return result;
     }
     if (profile_ == FunctionalProfile::V1) {

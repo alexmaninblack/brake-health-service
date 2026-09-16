@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 maninblack
 // SPDX-License-Identifier: Apache-2.0
 #include "brake_health/runtime/model_capture.hpp"
+#include "brake_health/v2/model.hpp"
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -18,12 +19,15 @@ std::int64_t quantize_milli(double value, double minimum, double maximum) {
 }
 std::optional<ModelFrame> complete_model_frame(const std::array<Signal, 12>& values,
     std::int64_t wall, std::int64_t mono, std::int64_t previous) {
-    const auto epoch = values.front().epoch_ms;
-    if (epoch <= previous || epoch < 0 || epoch > wall || wall - epoch > 250 || mono < 0) return {};
-    for (const auto& value : values) if (!value.valid || value.epoch_ms != epoch) return {};
+    const auto bounds=std::minmax_element(values.begin(),values.end(),
+        [](const auto& a,const auto& b){return a.epoch_ms<b.epoch_ms;});
+    const auto oldest=bounds.first->epoch_ms, epoch=bounds.second->epoch_ms;
+    if (epoch <= previous || oldest < 0 || epoch > wall ||
+        wall-oldest > v2::kMaximumSourceAgeMs || epoch-oldest > v2::kMaximumSignalSkewMs || mono < 0) return {};
+    for (const auto& value : values) if (!value.valid) return {};
     try {
         ModelFrame result; result.source_epoch_ms = epoch; result.monotonic_ms = mono;
-        result.source_age_ms = static_cast<std::int32_t>(wall - epoch);
+        result.source_age_ms = static_cast<std::int32_t>(wall - oldest);
         auto& s = result.signals;
         s.speed_milli_kph = quantize_milli(values[0].value, 0, 1000);
         s.longitudinal_acceleration_milli_mps2 = quantize_milli(values[1].value, -100, 100);
@@ -67,9 +71,9 @@ std::optional<v2::CompletedEpisode> ModelCapture::abort(v2::TerminalState termin
     return result;
 }
 std::optional<v2::CompletedEpisode> ModelCapture::ingest(const ModelFrame& f) {
-    if ((previous_source_ && (f.source_epoch_ms <= *previous_source_ || f.source_epoch_ms - *previous_source_ > 250)) ||
-        (previous_mono_ && (f.monotonic_ms < *previous_mono_ || f.monotonic_ms - *previous_mono_ > 250)) ||
-        f.source_age_ms < 0 || f.source_age_ms > 250) {
+    if ((previous_source_ && (f.source_epoch_ms <= *previous_source_ || f.source_epoch_ms - *previous_source_ > v2::kMaximumInputGapMs)) ||
+        (previous_mono_ && (f.monotonic_ms < *previous_mono_ || f.monotonic_ms - *previous_mono_ > v2::kMaximumInputGapMs)) ||
+        f.source_age_ms < 0 || f.source_age_ms > v2::kMaximumSourceAgeMs) {
         previous_source_ = f.source_epoch_ms; previous_mono_ = f.monotonic_ms;
         return abort(v2::TerminalState::IncompleteSourceGap);
     }
