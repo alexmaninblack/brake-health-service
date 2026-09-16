@@ -60,16 +60,16 @@ std::string request_bytes(
     const std::string& decision_id,
     const std::string& issued_at,
     const std::string& expires_at,
-    const std::string& service_version) {
+    const std::string& service_version, bool clear = false) {
     return std::string("{") +
         "\"decisionId\":" + json_string(decision_id) +
         ",\"expiresAt\":" + json_string(expires_at) +
         ",\"issuedAt\":" + json_string(issued_at) +
         ",\"modelVersion\":\"brake-condition-demo-v1\"" +
-        ",\"operation\":\"SET\"" +
+        (clear ? ",\"operation\":\"CLEAR\"" : ",\"operation\":\"SET\"") +
         ",\"producerEpoch\":" + json_string(producer_epoch) +
-        ",\"reasonCode\":\"PREDICTED_BRAKE_DEGRADATION\"" +
-        ",\"recommendation\":\"INSPECTION_RECOMMENDED\"" +
+        (clear ? ",\"reasonCode\":\"CONDITION_CLEARED\"" :
+         ",\"reasonCode\":\"PREDICTED_BRAKE_DEGRADATION\",\"recommendation\":\"INSPECTION_RECOMMENDED\"") +
         ",\"requestId\":" + json_string(request_id) +
         ",\"schemaVersion\":1" +
         ",\"sequence\":" + std::to_string(sequence) +
@@ -114,20 +114,32 @@ AdvisoryRequest build_set_request(
     return result;
 }
 
+AdvisoryRequest build_clear_request(const std::string& epoch, std::uint64_t sequence,
+    const std::string& command_id, const std::string& issued_at, const std::string& service_version) {
+    if(!canonical_uuid(epoch,'4')||!sequence||!canonical_uuid(command_id)||!semantic_version(service_version))
+        throw std::invalid_argument("reset request identity violates the contract");
+    const auto now=timestamp_milliseconds(issued_at);
+    if(now>std::numeric_limits<std::int64_t>::max()-static_cast<std::int64_t>(kLeaseMilliseconds))throw std::out_of_range("reset lease overflows");
+    const auto expires=timestamp_from_milliseconds(now+static_cast<std::int64_t>(kLeaseMilliseconds));
+    const auto id=brake_health::v2::uuid_v5(kRequestNamespace,{epoch,std::to_string(sequence),"CLEAR",command_id});
+    AdvisoryRequest result{id,epoch,sequence,command_id,issued_at,expires,
+        request_bytes(id,epoch,sequence,command_id,issued_at,expires,service_version,true),service_version,true};
+    validate_request(result);return result;
+}
 void validate_request(const AdvisoryRequest& request) {
     if (!canonical_uuid(request.request_id, '5') ||
         !canonical_uuid(request.producer_epoch, '4') || request.sequence == 0U ||
-        !canonical_uuid(request.decision_id, '5') || !semantic_version(request.service_version) ||
+        !canonical_uuid(request.decision_id, request.clear ? '\0' : '5') || !semantic_version(request.service_version) ||
         timestamp_milliseconds(request.expires_at) -
                 timestamp_milliseconds(request.issued_at) !=
             static_cast<std::int64_t>(kLeaseMilliseconds) ||
         brake_health::v2::uuid_v5(
             kRequestNamespace,
-            {request.producer_epoch, std::to_string(request.sequence), "SET",
+            {request.producer_epoch, std::to_string(request.sequence), request.clear ? "CLEAR" : "SET",
              request.decision_id}) != request.request_id ||
         request_bytes(
             request.request_id, request.producer_epoch, request.sequence,
-            request.decision_id, request.issued_at, request.expires_at, request.service_version) !=
+            request.decision_id, request.issued_at, request.expires_at, request.service_version, request.clear) !=
             request.canonical_json ||
         request.canonical_json.size() > kMaximumRequestBytes) {
         throw std::invalid_argument("advisory request is not canonical");
@@ -203,6 +215,7 @@ AdvisoryFact build_advisory_fact(
     const AdvisoryRequest& request,
     const GatewayStatus& status,
     const std::string& recorded_at) {
+    if(request.clear)throw std::invalid_argument("Demo reset CLEAR is not an assessment fact");
     validate_metadata(metadata);
     validate_request(request);
     validate_gateway_status(status);

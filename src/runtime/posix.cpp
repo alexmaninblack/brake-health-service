@@ -181,4 +181,12 @@ HttpResponse post_backend(const std::string& bytes, const std::atomic<bool>& sto
     const auto request = std::string("POST ") + path + " HTTP/1.1\r\nHost: 10.0.0.1:18091\r\nContent-Type: application/json\r\n" + marker + "Connection: close\r\nContent-Length: " + std::to_string(bytes.size()) + "\r\n\r\n" + bytes;
     return parse_http_response(exchange(AF_INET, reinterpret_cast<sockaddr*>(&address), sizeof(address), request, 24576, 10, stop));
 }
+HttpResponse post_demo_control(const std::string& bytes, const std::atomic<bool>& stop, bool acknowledgement) {
+    if(bytes.empty()||bytes.size()>4096)throw std::invalid_argument("MESSAGE_SIZE_INVALID");
+    sockaddr_in address{};address.sin_family=AF_INET;address.sin_port=htons(18091);
+    if(::inet_pton(AF_INET,"10.0.0.1",&address.sin_addr)!=1)fail();
+    const auto path=acknowledgement?"/api/v1/brake/demo-control/ack":"/api/v1/brake/demo-control/poll";
+    const auto request=std::string("POST ")+path+" HTTP/1.1\r\nHost: 10.0.0.1:18091\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: "+std::to_string(bytes.size())+"\r\n\r\n"+bytes;
+    return parse_http_response(exchange(AF_INET,reinterpret_cast<sockaddr*>(&address),sizeof(address),request,24576,2,stop));
+}
 }  // namespace brake_health::runtime

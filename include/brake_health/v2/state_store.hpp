@@ -82,6 +82,9 @@ public:
     bool quarantine_delivery(const std::string& id);
     ModelState state() const;
     bool ready() const { return ready_; }
+    // Explicit demo reset, not an assessment. Keeps identity, sequence and outbox.
+    void reset_demo(const std::string& command_id);
+    bool demo_reset_applied(const std::string& command_id) const;
 
 private:
     struct IdentityBinding {
@@ -96,6 +99,7 @@ private:
     };
 
     void recover();
+    void recover_demo_reset();
     void persist_transaction(
         const ModelState& before,
         const ModelState& after,

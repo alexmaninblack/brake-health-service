@@ -131,7 +131,22 @@ void deliver(Product& runtime, std::atomic<bool>& stop, Log& log) {
     std::mt19937 random(std::random_device{}());
     std::uniform_real_distribution<double> jitter(-0.2, 0.2);
     unsigned attempt = 0;
+    std::int64_t next_control=0,next_delivery=0;
     while (!stop && !interrupted) {
+        if(boot_milliseconds()>=next_control) {
+            try {
+                if(const auto ack=runtime.demo_control_ack(wall_milliseconds())) {
+                    const auto response=post_demo_control(*ack,stop,true);
+                    if(response.status==200)runtime.demo_control_accepted(response.body);
+                }
+                if(const auto poll=runtime.demo_control_poll()) {
+                    const auto response=post_demo_control(*poll,stop,false);
+                    if(response.status==200)runtime.demo_control_command(response.body,wall_milliseconds());
+                }
+            } catch(...) {log.state("DEMO_CONTROL_CHANGED","UNAVAILABLE","RESET_CONTROL_UNAVAILABLE");}
+            next_control=boot_milliseconds()+5000;
+        }
+        if(boot_milliseconds()<next_delivery){pause(stop,100);continue;}
         try {
             const auto pending = runtime.next_message();
             if (!pending) { attempt = 0; pause(stop, 100); continue; }
@@ -141,7 +156,7 @@ void deliver(Product& runtime, std::atomic<bool>& stop, Log& log) {
                 attempt = 0; log.backend(true);
             } else {
                 log.backend(false);
-                pause(stop, retry_delay(attempt++, jitter(random), response.retry_after) * 1000LL);
+                next_delivery=boot_milliseconds()+retry_delay(attempt++, jitter(random), response.retry_after)*1000LL;
             }
         } catch (...) {
             log.analytics(false, "STORAGE_UNAVAILABLE");
@@ -356,6 +371,7 @@ void advisory_session(Product& runtime, const ApplicationInputs& inputs, std::at
         ~ReaderJoin() { context->TryCancel(); worker.join(); }
     } reader_join{reader_context, observations};
     auto last_attempt = std::int64_t{-1000};
+    std::int64_t next_readiness=0;
     while (!invalid && !stop && !interrupted) {
         const auto now = boot_milliseconds();
         if (now - last_attempt >= 1000) {
@@ -381,6 +397,14 @@ void advisory_session(Product& runtime, const ApplicationInputs& inputs, std::at
                     log.advisory(false, denied ? "KUKSA_WRITE_UNAUTHORIZED" : "VISS_OR_GATEWAY_UNAVAILABLE");
                 }
             }
+        }
+        if(boot_milliseconds()>=next_readiness) {
+            val::SetRequest set;val::SetResponse result;
+            auto* update=set.add_updates();update->add_fields(val::FIELD_ACTUATOR_TARGET);
+            update->mutable_entry()->set_path(brake_health::v3::kReadinessPath);
+            update->mutable_entry()->mutable_actuator_target()->set_string(runtime.advisory_readiness(wall_milliseconds()));
+            const auto set_context=context();(void)stub->Set(set_context.get(),set,&result);
+            next_readiness=boot_milliseconds()+5000;
         }
         pause(stop, 100);
     }

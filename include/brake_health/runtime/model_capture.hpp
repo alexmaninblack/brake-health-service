@@ -30,6 +30,7 @@ public:
     std::optional<v2::CompletedEpisode> ingest(const ModelFrame& frame);
     std::optional<v2::CompletedEpisode> abort(v2::TerminalState state);
     bool capturing() const { return state_ != State::Idle; }
+    void reset_demo() { const auto source=uuid_; *this=ModelCapture(source); }
 private:
     enum class State { Idle, Active, Post };
     struct Retained { v2::Sample sample; std::int64_t monotonic_ms; };

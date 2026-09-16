@@ -12,6 +12,7 @@
 #include <fcntl.h>
 #include <fstream>
 #include <map>
+#include <limits>
 #include <set>
 #include <stdexcept>
 #include <string>
@@ -446,6 +447,7 @@ StateStore::StateStore(
                 identity_ledger_json({
                     0U, brake_health::v1::sha256_hex(existing_state), {}}));
         }
+        recover_demo_reset();
         recover();
         if (state().producer_epoch != producer_epoch_) {
             throw std::runtime_error("persistent producer epoch does not match this instance");
@@ -521,6 +523,59 @@ void StateStore::fail_if_requested(WriteStage stage) const {
     if (fault_injector_ && fault_injector_(stage)) {
         throw std::runtime_error("injected v2 persistence interruption");
     }
+}
+bool StateStore::demo_reset_applied(const std::string& command_id) const {
+    return std::filesystem::exists(state_root_/"demo-reset-id") &&
+        read_bounded(state_root_/"demo-reset-id",36)==command_id;
+}
+void StateStore::reset_demo(const std::string& command_id) {
+    if(command_id.size()!=36 || command_id[8]!='-' || command_id[13]!='-' ||
+       command_id[18]!='-' || command_id[23]!='-' ||
+       !std::all_of(command_id.begin(),command_id.end(),[](char c){return (c>='0'&&c<='9')||(c>='a'&&c<='f')||c=='-';}))
+        throw std::invalid_argument("RESET_INVALID_COMMAND_ID");
+    if(!ready_)throw std::runtime_error("RESET_STATE_UNAVAILABLE");
+    if(demo_reset_applied(command_id))return;
+    if(!std::filesystem::is_empty(state_root_/"transactions") ||
+       std::filesystem::exists(state_root_/"reset-journal"))throw std::runtime_error("RESET_RECOVERY_REQUIRED");
+    const auto before=state();auto after=before;
+    const auto baseline=initial_state(producer_epoch_);
+    if(after.generation==std::numeric_limits<std::uint64_t>::max())throw std::runtime_error("RESET_GENERATION_EXHAUSTED");
+    ++after.generation;after.wear_index=baseline.wear_index;after.condition_score=baseline.condition_score;after.condition_band=baseline.condition_band;
+    const auto old_ledger=identity_ledger(before);auto new_ledger=old_ledger;
+    new_ledger.generation=after.generation;new_ledger.state_sha256=brake_health::v1::sha256_hex(state_json(after));
+    const auto staging=state_root_/".staging-reset";
+    make_private_directory(staging);
+    atomic_write(staging/"command-id",command_id);
+    atomic_write(staging/"before.json",state_json(before));atomic_write(staging/"after.json",state_json(after));
+    atomic_write(staging/"before-identities.json",identity_ledger_json(old_ledger));
+    atomic_write(staging/"after-identities.json",identity_ledger_json(new_ledger));
+    sync_directory(staging);fail_if_requested(WriteStage::JournalFiles);
+    std::filesystem::rename(staging,state_root_/"reset-journal");sync_directory(state_root_);
+    fail_if_requested(WriteStage::Journal);
+    recover_demo_reset();
+}
+void StateStore::recover_demo_reset() {
+    const auto journal=state_root_/"reset-journal";if(!std::filesystem::exists(journal))return;
+    const auto command_id=read_bounded(journal/"command-id",36);
+    const auto before=read_bounded(journal/"before.json"),after=read_bounded(journal/"after.json");
+    const auto before_ids=read_bounded(journal/"before-identities.json"),after_ids=read_bounded(journal/"after-identities.json");
+    const auto old_state=parse_state_json(before),new_state=parse_state_json(after);
+    auto expected=old_state;const auto baseline=initial_state(producer_epoch_);
+    ++expected.generation;expected.wear_index=baseline.wear_index;expected.condition_score=baseline.condition_score;expected.condition_band=baseline.condition_band;
+    if(state_json(expected)!=after || old_state.producer_epoch!=producer_epoch_ || command_id.size()!=36)
+        throw std::runtime_error("RESET_JOURNAL_INVALID");
+    const auto old_ledger=parse_identity_ledger(before_ids),new_ledger=parse_identity_ledger(after_ids);
+    validate_identity_ledger(old_ledger,old_state,before);validate_identity_ledger(new_ledger,new_state,after);
+    auto expected_ledger=old_ledger;expected_ledger.generation=new_state.generation;expected_ledger.state_sha256=brake_health::v1::sha256_hex(after);
+    if(identity_ledger_json(expected_ledger)!=after_ids)throw std::runtime_error("RESET_IDENTITY_CHANGED");
+    const auto current=read_bounded(state_root_/"state.json"),current_ids=read_bounded(state_root_/"identity-ledger.json");
+    if((current!=before&&current!=after)||(current_ids!=before_ids&&current_ids!=after_ids))throw std::runtime_error("RESET_JOURNAL_CONFLICT");
+    atomic_write(state_root_/"state.json",after);fail_if_requested(WriteStage::State);
+    atomic_write(state_root_/"identity-ledger.json",after_ids);fail_if_requested(WriteStage::IdentityLedger);
+    atomic_write(state_root_/"demo-reset-id",command_id);fail_if_requested(WriteStage::CommitMarker);
+    // Rename makes journal removal recoverable even if interrupted mid-unlink.
+    std::filesystem::rename(journal,state_root_/".recovery-reset");sync_directory(state_root_);
+    std::filesystem::remove_all(state_root_/".recovery-reset");sync_directory(state_root_);
 }
 
 void StateStore::persist_transaction(

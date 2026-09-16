@@ -413,7 +413,68 @@ void mixed_provenance_recovery() {
     }
     native_fixture=false;
 }
+void reset_product_contract() {
+    native_fixture=true;Directory directory;std::string command_bytes,ack_bytes;std::uint64_t generation{};
+    std::string producer;v3::AdvisoryRequest clear;
+    const auto now=epoch+10000;
+    {
+        Product product(directory.path,metadata("49.0.0"),FunctionalProfile::V3);
+        CHECK(drive(product).status==v2::ProcessStatus::Produced);
+        const auto warning=product.next_request(now);CHECK(warning);
+        producer=warning->producer_epoch;
+        auto command=parse_json(*product.demo_control_poll()).object();
+        command["commandId"]=Json{random_uuid()};command["operation"]=Json{std::string("RESET_DEMO_SCENARIO")};
+        command["issuedAt"]=Json{utc_timestamp(now)};command["expiresAt"]=Json{utc_timestamp(now+60000)};
+        const auto envelope=[&](const Json::Object& value){return encode_json(Json{Json::Object{{"schemaVersion",Json{std::int64_t{1}}},{"command",Json{value}}}});};
+        command_bytes=envelope(command);
+        auto wrong=command;wrong["unitSystemUid"]=Json{std::string("production")};
+        rejects([&]{product.demo_control_command(envelope(wrong),now);});
+        product.demo_control_command(command_bytes,now);
+        generation=product.model_state()->generation;
+        CHECK(product.model_state()->wear_index==54);
+        clear=*product.next_request(now);CHECK(clear.clear&&clear.sequence>warning->sequence&&clear.producer_epoch==producer);
+        product.demo_control_command(command_bytes,now+10);
+        CHECK(product.model_state()->generation==generation);
+        CHECK(!product.demo_control_ack(now+100));
+        CHECK(!product.ingest(sample(0),epoch,0).valid);
+    }
+    {
+        Product product(directory.path,metadata("49.0.0"),FunctionalProfile::V3);
+        CHECK(product.model_state()->generation==generation&&product.model_state()->producer_epoch==producer);
+        const auto retried=product.next_request(now+1500);CHECK(retried&&retried->request_id==clear.request_id);
+        auto status=applied(clear,now+1600);status.state=v3::GatewayState::Cleared;
+        status.active_recommendation=v3::ActiveRecommendation::None;status.active_reason=v3::ActiveReason::None;status.active_until.reset();
+        auto wrong=status;wrong.request_id="11111111-1111-5111-8111-111111111111";
+        CHECK(!product.observe_gateway(v3::gateway_status_json(wrong),now+1600));
+        CHECK(!product.demo_control_ack(now+1600));
+        CHECK(product.observe_gateway(v3::gateway_status_json(status),now+1600));
+        ack_bytes=*product.demo_control_ack(now+1700);
+        CHECK(parse_json(ack_bytes).at("result").string()=="CLEARED");
+        CHECK(!product.next_request(now+2000));
+        product.demo_control_command(command_bytes,now+1800);CHECK(product.model_state()->generation==generation);
+        CHECK(drive(product).status==v2::ProcessStatus::Produced);
+        const auto renewed=product.next_request(now+3000);CHECK(renewed&&!renewed->clear&&renewed->sequence>clear.sequence);
+        CHECK(renewed->decision_id!=clear.decision_id);
+        CHECK(parse_json(product.advisory_readiness(epoch+9400)).at("ready").boolean());
+        CHECK(!parse_json(product.advisory_readiness(epoch+16000)).at("ready").boolean());
+        product.disconnect();CHECK(!parse_json(product.advisory_readiness(epoch+9400)).at("ready").boolean());
+    }
+    {
+        Product product(directory.path,metadata("49.0.0"),FunctionalProfile::V3);
+        CHECK(product.demo_control_ack(now+4000)==ack_bytes);
+        const auto command=parse_json(command_bytes).at("command");
+        product.demo_control_accepted(encode_json(Json{Json::Object{{"schemaVersion",Json{std::int64_t{1}}},{"commandId",command.at("commandId")},{"state",Json{std::string("CLEARED")}}}}));
+        CHECK(!product.demo_control_ack(now+4000));
+        auto next=command.object();next["commandId"]=Json{random_uuid()};
+        next["issuedAt"]=Json{utc_timestamp(now+5000)};next["expiresAt"]=Json{utc_timestamp(now+65000)};
+        product.demo_control_command(encode_json(Json{Json::Object{{"schemaVersion",Json{std::int64_t{1}}},{"command",Json{next}}}}),now+5000);
+        CHECK(!product.next_request(now+65000));
+        CHECK(parse_json(*product.demo_control_ack(now+65000)).at("result").string()=="FAILED");
+    }
+    native_fixture=false;
+}
 void native_product_contract_tests() {
+    reset_product_contract();
     native_fixture=true;
     product_upgrade_and_delivery();advisory_overflow_and_conflict();
     advisory_journal_recovery();advisory_corrupt_journal_preserved();

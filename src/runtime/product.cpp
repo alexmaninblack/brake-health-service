@@ -27,6 +27,7 @@ Product::Product(std::filesystem::path storage, v1::MessageMetadata metadata, Fu
         if (!model_->ready()) throw std::runtime_error("STATE_INVALID");
         if (profile_ == FunctionalProfile::V3)
             advisory_ = std::make_unique<AdvisoryRuntime>(root_ / "advisory-state/v1", root_ / "v3/outbox", model_->state());
+        complete_demo_reset(wall_milliseconds());
     }
 }
 std::pair<std::size_t, std::size_t> Product::derived_usage() const {
@@ -38,6 +39,7 @@ std::pair<std::size_t, std::size_t> Product::derived_usage() const {
 ProductObservation Product::ingest(const std::vector<Signal>& values, std::int64_t wall, std::int64_t mono) {
     std::lock_guard<std::mutex> lock(mutex_);
     ProductObservation result;
+    if(advisory_&&advisory_->reset_pending())return result;
     if (values.size() != (profile_ == FunctionalProfile::V1 ? 6U : 12U)) throw std::invalid_argument("SIGNAL_COUNT_INVALID");
     const auto bounds=std::minmax_element(values.begin(),values.end(),
         [](const auto& a,const auto& b){return a.epoch_ms<b.epoch_ms;});
@@ -70,7 +72,7 @@ ProductObservation Product::ingest(const std::vector<Signal>& values, std::int64
         previous_epoch_ = frame->source_epoch_ms;
         const auto was_capturing = capture_.capturing();
         const auto episode = capture_.ingest(*frame);
-        ready_ = result.valid = true;
+        ready_ = result.valid = true;telemetry_at_=wall;
         result.event_started = !was_capturing && capture_.capturing(); result.event_completed = episode.has_value();
         if (episode) {
             v2::DeploymentMetadata m{metadata_.unit_system_uid,
@@ -144,5 +146,35 @@ std::optional<std::string> Product::gateway_state() const {
 }
 std::optional<v2::ModelState> Product::model_state() const {
     std::lock_guard<std::mutex> lock(mutex_); return model_ ? std::optional<v2::ModelState>{model_->state()} : std::nullopt;
+}
+void Product::complete_demo_reset(std::int64_t now) {
+    if(!advisory_)return;
+    advisory_->reconcile_demo_reset(metadata_);
+    if(const auto id=advisory_->reset_model_command()) {
+        if(now>=advisory_->reset_deadline()&&!model_->demo_reset_applied(*id)) {
+            (void)advisory_->reset_ack(now);return;
+        }
+        model_->reset_demo(*id);advisory_->model_reset_applied();
+        capture_.reset_demo();previous_epoch_=-1;ready_=false;
+    }
+}
+std::optional<std::string> Product::demo_control_poll() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return advisory_&&metadata_.service_instance?std::optional<std::string>{advisory_->demo_poll(metadata_)}:std::nullopt;
+}
+void Product::demo_control_command(const std::string& bytes,std::int64_t now) {
+    std::lock_guard<std::mutex> lock(mutex_);if(!advisory_)throw std::runtime_error("RESET_PROFILE_UNSUPPORTED");
+    advisory_->begin_demo_reset(bytes,metadata_,now);complete_demo_reset(now);
+}
+std::optional<std::string> Product::demo_control_ack(std::int64_t now) {
+    std::lock_guard<std::mutex> lock(mutex_);return advisory_?advisory_->reset_ack(now):std::nullopt;
+}
+void Product::demo_control_accepted(const std::string& bytes) {
+    std::lock_guard<std::mutex> lock(mutex_);if(advisory_)advisory_->reset_acknowledged(bytes);
+}
+std::string Product::advisory_readiness(std::int64_t now) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return encode_json(Json{Json::Object{{"schemaVersion",Json{std::int64_t{1}}},{"ready",Json{advisory_&&ready_&&model_->ready()&&telemetry_at_>=0&&now>=telemetry_at_&&now-telemetry_at_<=5000}},
+        {"observedAt",Json{utc_timestamp(now)}}}});
 }
 }  // namespace brake_health::runtime

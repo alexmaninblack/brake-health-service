@@ -36,9 +36,15 @@ public:
     bool observe_gateway(const std::string& bytes, std::int64_t now);
     std::optional<std::string> gateway_state() const;
     std::optional<v2::ModelState> model_state() const;
+    std::optional<std::string> demo_control_poll() const;
+    void demo_control_command(const std::string&,std::int64_t now);
+    std::optional<std::string> demo_control_ack(std::int64_t now);
+    void demo_control_accepted(const std::string&);
+    std::string advisory_readiness(std::int64_t now) const;
     FunctionalProfile profile() const { return profile_; }
 private:
     std::pair<std::size_t, std::size_t> derived_usage() const;
+    void complete_demo_reset(std::int64_t now);
     std::filesystem::path root_;
     v1::MessageMetadata metadata_;
     FunctionalProfile profile_;
@@ -47,6 +53,7 @@ private:
     std::unique_ptr<v2::StateStore> model_;
     std::unique_ptr<AdvisoryRuntime> advisory_;
     std::int64_t previous_epoch_{-1};
+    std::int64_t telemetry_at_{-1};
     bool ready_{};
     unsigned delivery_cursor_{};
     mutable std::mutex mutex_;

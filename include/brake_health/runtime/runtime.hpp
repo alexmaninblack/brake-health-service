@@ -42,6 +42,7 @@ std::string exchange_credential(const std::string& request, const std::atomic<bo
 struct HttpResponse { int status{}; std::string body; int retry_after{}; };
 HttpResponse parse_http_response(const std::string& bytes);
 HttpResponse post_backend(const std::string& bytes, const std::atomic<bool>& stop, bool demo_mock = false);
+HttpResponse post_demo_control(const std::string& bytes, const std::atomic<bool>& stop, bool acknowledgement);
 bool matches_ack(const std::string& message, const HttpResponse& response);
 bool retryable_http(int status);
 int retry_delay(unsigned attempt, double jitter, int retry_after = 0);

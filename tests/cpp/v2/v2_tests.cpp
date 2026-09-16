@@ -911,9 +911,44 @@ void run(const char* name, const std::function<void()>& test) {
     }
 }
 
+void test_demo_reset_recovery() {
+    const std::string producer="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const std::string command="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    for(const auto stage:{WriteStage::JournalFiles,WriteStage::Journal,WriteStage::State,WriteStage::IdentityLedger,WriteStage::CommitMarker}) {
+        TemporaryDirectory temporary("reset-recovery-"+std::to_string(static_cast<int>(stage)));
+        ModelState prior;std::vector<OutboxEntry> retained;
+        {
+            StateStore store(temporary.path()/"state",temporary.path()/"outbox",producer);
+            CHECK(store.process(golden_episode(),metadata()).status==ProcessStatus::Produced);
+            prior=store.state();retained=store.inventory();
+        }
+        bool armed=false,injected=false;
+        {
+            StateStore store(temporary.path()/"state",temporary.path()/"outbox",producer,[&](WriteStage s){
+                if(armed&&!injected&&s==stage){injected=true;return true;}return false;
+            });
+            armed=true;check_throws<std::runtime_error>([&]{store.reset_demo(command);});CHECK(injected);
+        }
+        StateStore recovered(temporary.path()/"state",temporary.path()/"outbox",producer);
+        CHECK(recovered.ready());
+        const bool published=stage!=WriteStage::JournalFiles;
+        CHECK(recovered.state().generation==prior.generation+(published?1U:0U));
+        CHECK(recovered.demo_reset_applied(command)==published);
+        recovered.reset_demo(command);const auto after=recovered.state();
+        CHECK(after.generation==prior.generation+1);
+        CHECK(after.wear_index==54&&after.condition_score==46&&after.condition_band==ConditionBand::Monitor);
+        CHECK(after.producer_epoch==prior.producer_epoch&&after.next_advisory_sequence==prior.next_advisory_sequence);
+        CHECK(after.recent_source_event_ids==prior.recent_source_event_ids&&after.last_assessment_id==prior.last_assessment_id);
+        recovered.reset_demo(command);CHECK(state_json(recovered.state())==state_json(after));
+        const auto records=recovered.inventory();CHECK(records.size()==retained.size());
+        for(std::size_t i=0;i<records.size();++i)CHECK(records[i].canonical_json==retained[i].canonical_json);
+        CHECK(recovered.process(golden_episode(),metadata()).status==ProcessStatus::Duplicate);
+    }
+}
 }  // namespace
 
 int main() {
+    run("demo reset interruption and identity preservation",test_demo_reset_recovery);
     run("rounding and model boundaries", test_rounding_and_model_boundaries);
     run("input quality priority and boundaries", test_input_quality_priority_and_boundaries);
     run("golden features messages and uuid", test_golden_features_messages_and_uuid);

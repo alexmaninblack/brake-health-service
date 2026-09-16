@@ -17,6 +17,8 @@ inline constexpr const char* kRequestPath =
     "Vehicle.OEM.BrakeHealth.Advisory.Request";
 inline constexpr const char* kStatusPath =
     "Vehicle.OEM.BrakeHealth.Advisory.GatewayStatus";
+inline constexpr const char* kReadinessPath =
+    "Vehicle.OEM.BrakeHealth.Advisory.Readiness";
 inline constexpr const char* kRequestNamespace =
     "894e102e-5380-5c9d-a6f7-46f00b234725";
 inline constexpr std::uint64_t kLeaseMilliseconds = 30000U;
@@ -68,6 +70,7 @@ struct AdvisoryRequest {
     std::string expires_at;
     std::string canonical_json;
     std::string service_version;
+    bool clear{};
 };
 
 struct GatewayStatus {
