@@ -34,7 +34,7 @@ items:
         stateLimit: 1MiB
         tmpLimit: 8MiB
         noFileLimit: 64
-        pidsLimit: 16
+        pidsLimit: 24
       resources:
         - name: kuksa
     dependencies: []
