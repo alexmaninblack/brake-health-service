@@ -35,6 +35,7 @@ class Log {
     std::map<std::string, std::string> previous_;
     std::int64_t minute_{};
     unsigned emitted_{}, suppressed_{};
+    int largest_timing_bucket_{-1};
     bool analytics_{}, backend_{}, advisory_{};
     std::string analytics_reason_{"STARTING"}, advisory_reason_{"VISS_OR_GATEWAY_UNAVAILABLE"};
     void readiness() {
@@ -48,6 +49,11 @@ public:
         const auto bounds=std::minmax_element(values.begin(),values.end(),
             [](const auto& a,const auto& b){return a.epoch_ms<b.epoch_ms;});
         const auto skew=bounds.second->epoch_ms-bounds.first->epoch_ms;
+        const int bucket=skew==0?0:skew<=10?1:skew<=100?2:3;
+        // Report only a newly observed maximum; timing jitter must not consume
+        // the event budget and suppress actual assessment/transition evidence.
+        if(bucket<=largest_timing_bucket_)return;
+        largest_timing_bucket_=bucket;
         state("KUKSA_INPUT_TIMING","OBSERVED",skew==0?"SKEW_ZERO":
             skew<=10?"SKEW_UP_TO_10MS":skew<=100?"SKEW_UP_TO_100MS":"SKEW_EXCEEDS_100MS");
     }
