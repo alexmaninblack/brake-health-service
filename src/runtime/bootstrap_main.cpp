@@ -61,6 +61,11 @@ int main(int argc, char** argv) {
         TokenSession session;
         if (::setenv("KUKSA_TOKEN_FILE", session.token_file().c_str(), 1) != 0)
             throw std::runtime_error("CREDENTIAL_ENVIRONMENT_INVALID");
+        // Aos publishes the local KUKSA name in this container's /etc/hosts.
+        // Reconnects (including JWT rotation) must not require external DNS.
+        // Set before exec/gRPC initialization; keep Server TLS verification.
+        if (::setenv("GRPC_DNS_RESOLVER", "native", 1) != 0)
+            throw std::runtime_error("LOCAL_RESOLVER_CONFIGURATION_INVALID");
         std::signal(SIGINT, signal_handler); std::signal(SIGTERM, signal_handler);
         const auto bootstrap_pid = ::getpid();
         child = ::fork();
