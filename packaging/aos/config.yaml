@@ -33,7 +33,7 @@ items:
         storageLimit: 8MiB
         stateLimit: 1MiB
         tmpLimit: 8MiB
-        noFileLimit: 64
+        noFileLimit: 1024
         pidsLimit: 24
       resources:
         - name: kuksa
