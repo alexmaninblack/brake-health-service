@@ -473,7 +473,41 @@ void reset_product_contract() {
     }
     native_fixture=false;
 }
+void source_recovery_preserves_model_and_delivery() {
+    // Synthetic host proof of the service-domain boundary, not a live KUKSA
+    // subscription or a claim about the active VDP functional profile.
+    native_fixture=true;
+    for (const auto profile : {FunctionalProfile::V2, FunctionalProfile::V3}) {
+        Directory directory;
+        const auto current=metadata("59.0.0");
+        Product product(directory.path,current,profile);
+        CHECK(drive(product).status==v2::ProcessStatus::Produced);
+        const auto model=v2::state_json(*product.model_state());
+        const auto pending=product.next_message();CHECK(pending);
+        const auto bytes=pending->bytes();
+
+        product.disconnect();
+        CHECK(!product.analytics_ready());
+        product.update_metadata(current); // Unchanged family metadata is not fresh input.
+        CHECK(!product.analytics_ready());
+        auto missing=sample(10000);missing[3].valid=false;
+        CHECK(!product.ingest(missing,epoch+10020,10000).valid);
+        CHECK(!product.analytics_ready());
+        CHECK(v2::state_json(*product.model_state())==model);
+        CHECK(product.next_message()->bytes()==bytes);
+
+        const auto resumed=product.ingest(sample(10100),epoch+10120,10100);
+        CHECK(resumed.valid&&!resumed.analysis&&!resumed.event_started);
+        CHECK(product.analytics_ready());
+        CHECK(v2::state_json(*product.model_state())==model);
+        CHECK(product.next_message()->bytes()==bytes);
+        if (profile==FunctionalProfile::V3)
+            CHECK(parse_json(product.advisory_readiness(epoch+10120)).at("ready").boolean());
+    }
+    native_fixture=false;
+}
 void native_product_contract_tests() {
+    source_recovery_preserves_model_and_delivery();
     reset_product_contract();
     native_fixture=true;
     product_upgrade_and_delivery();advisory_overflow_and_conflict();
