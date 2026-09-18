@@ -34,8 +34,10 @@ class Log {
     std::mutex capabilities_mutex_;
     std::map<std::string, std::string> previous_;
     std::int64_t minute_{};
-    unsigned emitted_{}, suppressed_{};
+    unsigned emitted_{}, occurrence_emitted_{}, suppressed_{};
     int largest_timing_bucket_{-1};
+    std::int64_t next_input_report_{};
+    unsigned rejected_inputs_{};
     bool analytics_{}, backend_{}, advisory_{};
     std::string analytics_reason_{"STARTING"}, advisory_reason_{"VISS_OR_GATEWAY_UNAVAILABLE"};
     void readiness() {
@@ -65,6 +67,25 @@ public:
         else if (std::any_of(values.begin(), values.end(), [&](const auto& v) { return wall - v.epoch_ms > brake_health::v1::kMaximumSourceAgeMs; })) reason = "STALE_TIMESTAMP";
         else if (std::any_of(values.begin(), values.end(), [&](const auto& v) { return v.epoch_ms != values.front().epoch_ms; })) reason = "MIXED_TIMESTAMPS";
         state("KUKSA_INPUT_REJECTED", "NOT_READY", reason);
+        // A bounded aggregate survives repeated identical rejects. Report
+        // validity/timing only, never signal values or credential material.
+        ++rejected_inputs_;
+        const auto now = boot_milliseconds();
+        if (now < next_input_report_) return;
+        next_input_report_ = now + 10000;
+        unsigned missing_mask = 0;
+        std::int64_t oldest = wall, newest = 0;
+        for (std::size_t i = 0; i < values.size(); ++i) {
+            if (!values[i].valid) missing_mask |= 1U << i;
+            else { oldest = std::min(oldest, values[i].epoch_ms); newest = std::max(newest, values[i].epoch_ms); }
+        }
+        std::lock_guard<std::mutex> lock(mutex_);
+        std::cout << "{\"schemaVersion\":1,\"eventType\":\"KUKSA_INPUT_SUMMARY\",\"severity\":\"INFO\",\"observedAt\":"
+                  << quote_json(utc_timestamp(wall)) << ",\"currentState\":\"REJECTED\",\"reasonCode\":" << quote_json(reason)
+                  << ",\"count\":" << rejected_inputs_ << ",\"missingMask\":" << missing_mask
+                  << ",\"oldestAgeMs\":" << std::clamp(wall-oldest, std::int64_t{-60000}, std::int64_t{60000})
+                  << ",\"newestAheadMs\":" << std::clamp(newest-wall, std::int64_t{-60000}, std::int64_t{60000}) << '}' << std::endl;
+        rejected_inputs_ = 0;
     }
     void analytics(bool ready, const std::string& reason = "NONE") {
         std::lock_guard<std::mutex> lock(capabilities_mutex_); analytics_ = ready; analytics_reason_ = reason; readiness();
@@ -79,11 +100,15 @@ public:
     void state(const std::string& event, const std::string& state, const std::string& reason, const std::string& source_event = "") {
         std::lock_guard<std::mutex> lock(mutex_);
         const auto key = state + ':' + reason;
-        if (event != "WINDOW_TRIGGERED" && event != "WINDOW_COMPLETED" && previous_[event] == key) return;
+        const bool occurrence = event == "WINDOW_TRIGGERED" || event == "WINDOW_COMPLETED" ||
+            event == "ASSESSMENT_CREATED" || event == "ASSESSMENT_SKIPPED_INPUT_QUALITY" ||
+            event == "DERIVED_OUTBOX_FULL" || event == "TELEMETRY_WATCHDOG_EXPIRED";
+        if (!occurrence && previous_[event] == key) return;
         const auto minute = boot_milliseconds() / 60000;
-        if (minute != minute_) { minute_ = minute; emitted_ = 0; }
-        if (emitted_ >= 60) { ++suppressed_; return; }
-        previous_[event] = key; ++emitted_;
+        if (minute != minute_) { minute_ = minute; emitted_ = 0; occurrence_emitted_ = 0; }
+        auto& budget = occurrence ? occurrence_emitted_ : emitted_;
+        if (budget >= 60) { ++suppressed_; return; }
+        previous_[event] = key; ++budget;
         std::cout << "{\"schemaVersion\":1,\"eventType\":" << quote_json(event)
                   << ",\"severity\":\"INFO\",\"observedAt\":" << quote_json(utc_timestamp(wall_milliseconds()))
                   << ",\"currentState\":" << quote_json(state) << ",\"reasonCode\":" << quote_json(reason)
@@ -181,6 +206,7 @@ void subscribe(Product& runtime, const ApplicationInputs& inputs, std::atomic<bo
     std::atomic<bool> invalid{false}, finished{false};
     std::atomic<std::int64_t> last_frame{boot_milliseconds()};
     std::thread watcher([&] {
+        bool freshness_expired = false;
         while (!finished) {
             bool cancel = stop || interrupted;
             try {
@@ -198,12 +224,14 @@ void subscribe(Product& runtime, const ApplicationInputs& inputs, std::atomic<bo
                 try {
                     runtime.disconnect();
                     log.analytics(false, "KUKSA_DATA_UNAVAILABLE");
+                    if (!freshness_expired) log.state("TELEMETRY_WATCHDOG_EXPIRED", "NOT_READY", "NO_VALID_FRAME_WITHIN_FRESHNESS");
+                    freshness_expired = true;
                 } catch (...) {
                     invalid = true;
                     std::lock_guard<std::mutex> lock(context_mutex);
                     if (active) active->TryCancel();
                 }
-            }
+            } else freshness_expired = false;
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
         }
     });

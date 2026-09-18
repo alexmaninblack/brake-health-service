@@ -6,6 +6,22 @@ from pathlib import Path
 
 
 class SubscribeContractTests(unittest.TestCase):
+    def test_episode_outcomes_have_a_separate_repeatable_diagnostic_budget(self):
+        source = (Path(__file__).resolve().parents[1] / "src/runtime/grpc_main.cpp").read_text()
+        logger = source.split("void state(", 1)[1].split("void pause(", 1)[0]
+        for event in ("ASSESSMENT_CREATED", "ASSESSMENT_SKIPPED_INPUT_QUALITY", "WINDOW_COMPLETED"):
+            self.assertIn('event == "' + event + '"', logger)
+        self.assertIn("if (!occurrence && previous_[event] == key) return;", logger)
+        self.assertIn("occurrence ? occurrence_emitted_ : emitted_", logger)
+
+    def test_repeated_input_failures_have_bounded_non_payload_diagnostics(self):
+        source = (Path(__file__).resolve().parents[1] / "src/runtime/grpc_main.cpp").read_text()
+        diagnostic = source.split("void input_rejected(", 1)[1].split("void analytics(", 1)[0]
+        self.assertIn("next_input_report_ = now + 10000", diagnostic)
+        self.assertIn("missing_mask", diagnostic)
+        self.assertNotIn(".value", diagnostic)
+        self.assertIn("if (!freshness_expired) log.state", source)
+
     def test_timing_diagnostic_does_not_log_every_jitter_transition(self):
         source = (Path(__file__).resolve().parents[1] / "src/runtime/grpc_main.cpp").read_text()
         diagnostic = source.split("void input_timing(", 1)[1].split("void input_rejected(", 1)[0]
