@@ -366,6 +366,10 @@ std::optional<std::string> AdvisoryRuntime::current_gateway_state() const {
     }
     return latest->at("state").string();
 }
+std::optional<std::string> AdvisoryRuntime::current_request_id() const {
+    const auto current=load();if(requests(current).empty())return std::nullopt;
+    return request(requests(current).back().at("request")).request_id;
+}
 std::string AdvisoryRuntime::demo_poll(const v1::MessageMetadata& m) const {
     if(!m.service_instance)throw std::runtime_error("RESET_NATIVE_IDENTITY_REQUIRED");
     return encode_json(Json{Json::Object{{"schemaVersion",Json{std::int64_t{1}}},{"unitSystemUid",Json{m.unit_system_uid}},

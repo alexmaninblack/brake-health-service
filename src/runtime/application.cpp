@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 maninblack
 // SPDX-License-Identifier: Apache-2.0
 #include "brake_health/runtime/application.hpp"
+#include "brake_health/runtime/session_reconnect.hpp"
 #include "brake_health/runtime/json.hpp"
 #include <algorithm>
 #include <cerrno>
@@ -13,6 +14,19 @@
 #include <unistd.h>
 
 namespace brake_health::runtime {
+SessionInputChange inspect_session_inputs(const ApplicationInputs& inputs,
+    const std::filesystem::path& token_file, const std::string& token,
+    const std::string& metadata, const std::string& ca) noexcept {
+    try {
+        // Do not short-circuit on token replacement: a simultaneous public
+        // input change or removal is not a token-only renewal.
+        const auto current_token = read_private_token(token_file);
+        const auto current_metadata = read_file(inputs.metadata_file, 8192);
+        const auto current_ca = read_file(inputs.ca_file, 65536);
+        if (current_metadata != metadata || current_ca != ca) return SessionInputChange::Unavailable;
+        return current_token == token ? SessionInputChange::None : SessionInputChange::TokenReplaced;
+    } catch (...) { return SessionInputChange::Unavailable; }
+}
 ApplicationInputs parse_arguments(int argc, char** argv) {
     ApplicationInputs result;
     for (int i = 1; i < argc; i += 2) {
@@ -101,6 +115,14 @@ v1::MessageMetadata parse_metadata(const std::string& bytes, const NativeService
 v1::MessageMetadata runtime_metadata(const ApplicationInputs& inputs, const std::string& bytes) {
     if (!inputs.native) throw std::invalid_argument("NATIVE_IDENTITY_REQUIRED");
     return parse_metadata(bytes, *inputs.native);
+}
+std::optional<v1::MessageMetadata> initial_runtime_metadata(const ApplicationInputs& inputs) {
+    if (!inputs.native) throw std::invalid_argument("NATIVE_IDENTITY_REQUIRED");
+    const auto bytes = read_optional_public_file(inputs.metadata_file, 8192);
+    if (!bytes) return std::nullopt;
+    const auto metadata = runtime_metadata(inputs, *bytes);
+    if (!read_optional_public_file(inputs.ca_file, 65536)) return std::nullopt;
+    return metadata;
 }
 Json metadata_binding(const v1::MessageMetadata& m) {
     Json::Object value{{"schemaVersion", Json{std::int64_t{m.service_instance ? 2 : 1}}},

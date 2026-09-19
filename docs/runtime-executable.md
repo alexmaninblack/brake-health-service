@@ -3,6 +3,22 @@
 
 # Brake executable integration boundary
 
+## 18 September: approved V1 cadence and observation increment
+
+The current V1 acquisition uses the first complete valid sample in each
+100-ms source-time bucket, matching the accepted retained 10-Hz rate at both
+20-Hz and 30-Hz ingress. Empty buckets stay empty; source times, trigger/clear
+holds, window/spool bounds and old messages are unchanged. This supersedes
+the earlier every-third-frame assumption, not the original logical payload.
+See the Solution's Brake Telemetry Window cadence amendment.
+
+The new bounded function-observation v3 source runs in the existing delivery
+worker and keeps its own 64-record allocation under the existing service
+storage. Input, activity, delivery and advisory are independent; observations
+are not assessments or native advisory validity. Source tests/builds are
+recorded in the Solution's 18 September consumer/producer evidence. Live
+publication and qualification of this increment remain open.
+
 ## 16 September: approved V2/V3 timing amendment
 
 V2/V3 allow at most 5000 ms source age/stream idle/input gap, independently of

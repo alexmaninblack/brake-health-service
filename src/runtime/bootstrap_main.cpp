@@ -49,14 +49,28 @@ int main(int argc, char** argv) {
         if (demo_no_telemetry || demo_mock) --argc;
         auto inputs = parse_arguments(argc, argv);
         initialize_service_inputs(inputs);
-        const auto metadata = runtime_metadata(inputs, read_file(inputs.metadata_file, 8192));
-        if (demo_no_telemetry) return run_demo_no_telemetry(metadata);
-        if (demo_mock) return run_demo_mock(metadata);
-        (void)read_file(inputs.ca_file, 65536);
+        if (demo_no_telemetry || demo_mock) {
+            const auto metadata = runtime_metadata(inputs, read_file(inputs.metadata_file, 8192));
+            return demo_no_telemetry ? run_demo_no_telemetry(metadata) : run_demo_mock(metadata);
+        }
         const char* environment_secret = std::getenv("AOS_SECRET");
         if (!environment_secret || !*environment_secret) throw std::runtime_error("AOS_SECRET_UNAVAILABLE");
         const std::string request = credential_request(environment_secret);
         if (::unsetenv("AOS_SECRET") != 0) throw std::runtime_error("CREDENTIAL_ENVIRONMENT_INVALID");
+        std::signal(SIGINT, signal_handler); std::signal(SIGTERM, signal_handler);
+        bool waiting_reported = false;
+        while (!interrupted && !initial_runtime_metadata(inputs)) {
+            if (!waiting_reported) {
+                std::cout << "{\"schemaVersion\":1,\"eventType\":\"SERVICE_INPUTS_CHANGED\",\"severity\":\"INFO\",\"currentState\":\"WAITING\",\"reasonCode\":\"INITIAL_PUBLIC_INPUTS_MISSING\"}" << std::endl;
+                waiting_reported = true;
+            }
+            // Existing bootstrap, no extra daemon/timer or Cloud dependency.
+            for (int tick = 0; tick < 10 && !interrupted; ++tick)
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+        if (interrupted) return 0;
+        if (waiting_reported)
+            std::cout << "{\"schemaVersion\":1,\"eventType\":\"SERVICE_INPUTS_CHANGED\",\"severity\":\"INFO\",\"currentState\":\"AVAILABLE\",\"reasonCode\":\"NONE\"}" << std::endl;
         ::umask(0077);
         TokenSession session;
         if (::setenv("KUKSA_TOKEN_FILE", session.token_file().c_str(), 1) != 0)

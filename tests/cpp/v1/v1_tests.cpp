@@ -183,6 +183,11 @@ void test_sha256_known_answers() {
 }
 
 void test_frame_validation_and_cadence() {
+    for(const int rate:{20,30}) {
+        WindowEngine sampled=engine_with_uuid();std::size_t count=0;
+        for(int i=0;i<rate*10;++i)count+=sampled.ingest(frame(i*1000/rate)).retained?1U:0U;
+        CHECK(count==100U);
+    }
     FrameValidator validator;
     CHECK(validator.validate(frame(0), std::nullopt, std::nullopt).valid);
 
@@ -208,11 +213,12 @@ void test_frame_validation_and_cadence() {
     CHECK(validator.validate(frame(99), 1787400000100LL, 100).error == FrameError::Reordered);
 
     WindowEngine engine = engine_with_uuid();
-    CHECK(!engine.ingest(frame(0)).retained);
+    CHECK(engine.ingest(frame(0)).retained);
     CHECK(!engine.ingest(frame(33)).retained);
     CHECK(!engine.ingest(frame(50, 42.0, 0, FrameQuality::Incomplete)).retained);
-    CHECK(engine.ingest(frame(66)).retained);
-    for (int index = 3; index < 93; ++index) {
+    CHECK(!engine.ingest(frame(66)).retained);
+    CHECK(engine.ingest(frame(100)).retained);
+    for (int index = 4; index < 93; ++index) {
         engine.ingest(frame(index * 33LL));
     }
     CHECK(engine.pre_sample_count() == 30U);
@@ -226,6 +232,10 @@ void test_frame_validation_and_cadence() {
     elapsed.ingest(frame(4033));
     elapsed.ingest(frame(4066));
     CHECK(elapsed.pre_sample_count() == 1U);
+    CHECK(!elapsed.ingest(frame(4066)).retained); // Duplicate cannot refill the bucket.
+    CHECK(!elapsed.ingest(frame(4099,42.0,0,FrameQuality::Incomplete)).retained);
+    CHECK(elapsed.ingest(frame(4100)).retained);
+    CHECK(elapsed.pre_sample_count()==2U); // Missing buckets remain gaps.
 }
 
 void test_trigger_boundaries_and_evidence_only_acceleration() {
@@ -359,7 +369,9 @@ void test_terminal_states_maximum_and_suppression() {
     std::int64_t decision_time = 0;
     for (std::int64_t cycle = 3300; !total_terminal && cycle < 20000; cycle += 900) {
         for (const auto& point : std::vector<std::pair<std::int64_t, int>>{
-                 {cycle, 9}, {cycle + 500, 9}, {cycle + 600, 50}, {cycle + 800, 50}}) {
+                 // One retained POST frame per cycle; otherwise the separate
+                 // 20-POST-sample cap completes first under 100-ms retention.
+                 {cycle, 9}, {cycle + 500, 9}, {cycle + 501, 50}, {cycle + 701, 50}}) {
             const IngestResult result = total_duration.ingest(frame(point.first, 10.0, point.second));
             if (result.completed) {
                 total_terminal = result.completed;

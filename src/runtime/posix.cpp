@@ -94,6 +94,28 @@ std::string read_file(const std::filesystem::path& path, std::size_t limit) {
     }
     return result;
 }
+std::optional<std::string> read_optional_public_file(const std::filesystem::path& path, std::size_t limit) {
+    // Do not follow a substituted leaf or block on a FIFO while waiting for
+    // the first atomically published regular public file.
+    Fd file{::open(path.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK)};
+    if (file.value < 0 && errno == ENOENT) return std::nullopt;
+    struct stat info{};
+    if (file.value < 0 || ::fstat(file.value, &info) != 0 || !S_ISREG(info.st_mode) ||
+        info.st_size <= 0 || static_cast<std::uint64_t>(info.st_size) > limit)
+        throw std::runtime_error("INPUT_FILE_UNAVAILABLE");
+    std::string result;
+    char bytes[4096];
+    for (;;) {
+        const auto count = ::read(file.value, bytes, sizeof(bytes));
+        if (count < 0 && errno == EINTR) continue;
+        if (count < 0) throw std::runtime_error("INPUT_FILE_UNAVAILABLE");
+        if (count == 0) break;
+        result.append(bytes, static_cast<std::size_t>(count));
+        if (result.size() > limit) throw std::runtime_error("INPUT_FILE_UNAVAILABLE");
+    }
+    if (result.empty()) throw std::runtime_error("INPUT_FILE_UNAVAILABLE");
+    return result;
+}
 void atomic_private_file(const std::filesystem::path& path, const std::string& bytes, unsigned mode) {
     if (mode != 0400 && mode != 0600) throw std::invalid_argument("PRIVATE_FILE_MODE_INVALID");
     struct stat info{};

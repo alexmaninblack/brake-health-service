@@ -49,7 +49,10 @@ void start(Runtime& runtime) {
     CHECK(runtime.inventory().front().state == v1::SpoolState::Capturing);
     const auto pre = runtime.next_message();
     CHECK(pre && pre->chunk_index == 0);
-    CHECK(parse_json(pre->bytes).at("content").at("sampleCount").integer() == 1);
+    // Source buckets 0 and 100 are PRE; the actual frame at 200 starts ACTIVE.
+    CHECK(parse_json(pre->bytes).at("content").at("sampleCount").integer() == 2);
+    CHECK(pre->bytes.find(utc_timestamp(1787400000000LL)) != std::string::npos);
+    CHECK(pre->bytes.find(utc_timestamp(1787400000100LL)) != std::string::npos);
 }
 std::string ack(const std::string& bytes, std::string date = "2026-09-09T00:00:00Z", std::string state = "DURABLE_ACCEPTED") {
     const auto message = parse_json(bytes);
@@ -140,6 +143,10 @@ void durable_delivery() {
     CHECK(!runtime.accept(*message, {0, "", 0}));
     CHECK(runtime.accept(*message, {201, ack(message->bytes), 0}));
     CHECK(std::filesystem::exists(directory.path / event_id));
+    message = runtime.next_message(); CHECK(message && message->chunk_index == 1);
+    CHECK(parse_json(message->bytes).at("content").at("sampleCount").integer() == 1);
+    CHECK(message->bytes.find(utc_timestamp(1787400000200LL)) != std::string::npos);
+    CHECK(runtime.accept(*message, {201, ack(message->bytes), 0}));
     message = runtime.next_message(); CHECK(message && !message->chunk_index);
     CHECK(matches_ack(message->bytes, {200, ack(message->bytes, "2026-09-09T09:00:00.123456+09:00", "DUPLICATE_ACCEPTED"), 0}));
     CHECK(!matches_ack(message->bytes, {200, ack(message->bytes, "2026-02-30T00:00:00Z"), 0}));
@@ -214,7 +221,7 @@ void growing_pre_active_and_completion() {
     CHECK(active.chunk_index == 1);
     const auto content = parse_json(active.bytes).at("content");
     CHECK(content.at("sampleCount").integer() == 10);
-    CHECK(content.at("firstSampleIndex").integer() == 1);
+    CHECK(content.at("firstSampleIndex").integer() == 2);
     CHECK(active.bytes.find("\"phase\":\"ACTIVE\"") != std::string::npos);
     CHECK(runtime.inventory().front().state == v1::SpoolState::Capturing);
     for (int time = 1750; time <= 1850; time += 50) runtime.ingest(frame(time));
@@ -224,12 +231,12 @@ void growing_pre_active_and_completion() {
     runtime.stop();
     const auto tail = *runtime.next_message();
     CHECK(tail.chunk_index == 2);
-    CHECK(parse_json(tail.bytes).at("content").at("sampleCount").integer() == 1);
+    CHECK(parse_json(tail.bytes).at("content").at("sampleCount").integer() == 7);
     CHECK(runtime.accept(tail, {201, ack(tail.bytes), 0}));
     const auto completion = *runtime.next_message();
     CHECK(!completion.chunk_index);
     const auto terminal = parse_json(completion.bytes).at("content");
-    CHECK(terminal.at("totalChunks").integer() == 3 && terminal.at("totalSamples").integer() == 12);
+    CHECK(terminal.at("totalChunks").integer() == 3 && terminal.at("totalSamples").integer() == 19);
     const auto& hashes = std::get<Json::Array>(terminal.at("chunkContentSha256").value);
     CHECK(hashes[0].string() == parse_json(pre.bytes).at("contentSha256").string());
     CHECK(hashes[1].string() == parse_json(active.bytes).at("contentSha256").string());
@@ -243,7 +250,7 @@ void growing_restart_and_quarantine() {
         start(runtime);
         auto pre = *runtime.next_message();
         CHECK(runtime.accept(pre, {201, ack(pre.bytes), 0}));
-        runtime.ingest(frame(250)); // One mutable ACTIVE sample, never sent.
+        runtime.ingest(frame(300)); // Adds a second mutable ACTIVE sample, never sent.
         CHECK(!runtime.next_message());
     }
     Runtime recovered(directory.path, metadata(), [] { return event_id; });
@@ -277,7 +284,7 @@ void growing_interrupted_checkpoint() {
         const auto previous = read_file(checkpoint_path, 65536);
         const auto pre = *runtime.next_message();
         CHECK(runtime.accept(pre, {201, ack(pre.bytes), 0}));
-        runtime.ingest(frame(250));
+        runtime.ingest(frame(300)); // A new source bucket changes the private checkpoint.
         // Emulate a crash after the new chunk is durable, before publishing
         // the new checkpoint. Both old completion files remain hash-valid.
         atomic_private_file(checkpoint_path, previous);

@@ -104,6 +104,7 @@ def inspect_test_report(path: Path) -> dict[str, object]:
     suites = [tree] if tree.tag == "testsuite" else list(tree.findall("testsuite"))
     cases = [case for suite in suites for case in suite.findall("testcase")]
     expected = {
+        "function_observation_delivery",
         "brake_demo_mock_isolation",
         "native_service_inputs", "brake_private_token_session",
         "brake_health_v1_contract", "brake_health_v2_contract",

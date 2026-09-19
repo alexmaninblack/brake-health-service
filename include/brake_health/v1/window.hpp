@@ -68,6 +68,8 @@ public:
     std::size_t active_sample_count() const;
     std::size_t total_sample_count() const;
     bool capturing() const;
+    const char* activity_state() const {return state_==State::Active?"ACTIVE":state_==State::Post?"POST":"WAITING";}
+    std::optional<std::string> activity_id() const {return capturing()?std::optional<std::string>{event_id_}:std::nullopt;}
     bool retrigger_suppressed() const;
 
 private:
@@ -104,7 +106,7 @@ private:
     std::int64_t active_segment_start_ms_{};
     std::int64_t accumulated_active_ms_{};
     std::int64_t post_start_ms_{};
-    std::uint64_t valid_frame_count_{};
+    std::optional<std::int64_t> retained_source_bucket_;
     bool retrigger_suppressed_{};
 };
 

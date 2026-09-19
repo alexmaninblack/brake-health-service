@@ -26,6 +26,7 @@ std::optional<v1::SourceFrame> complete_frame(const std::array<Signal, 6>& signa
 std::string utc_timestamp(std::int64_t epoch_ms);
 std::string random_uuid();
 std::string read_file(const std::filesystem::path& path, std::size_t limit);
+std::optional<std::string> read_optional_public_file(const std::filesystem::path& path, std::size_t limit);
 void atomic_private_file(const std::filesystem::path& path, const std::string& bytes, unsigned mode = 0400);
 
 struct Credential {
@@ -65,6 +66,8 @@ public:
     std::optional<PendingMessage> next_message();
     bool accept(const PendingMessage& message, const HttpResponse& response);
     std::vector<v1::SpoolEntry> inventory();
+    std::pair<std::size_t,bool> delivery_usage();
+    std::pair<std::string,std::optional<std::string>> activity();
 private:
     void store(const v1::EventWindow& window, bool capturing = false);
     std::filesystem::path root_;

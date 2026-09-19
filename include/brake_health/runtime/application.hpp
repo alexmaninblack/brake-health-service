@@ -15,6 +15,9 @@ NativeServiceInputs parse_service_inputs(const std::string& release_bytes, const
 void initialize_service_inputs(ApplicationInputs& inputs);
 v1::MessageMetadata parse_metadata(const std::string& bytes, const NativeServiceInputs& native);
 v1::MessageMetadata runtime_metadata(const ApplicationInputs& inputs, const std::string& bytes);
+// Only missing initial public inputs are retryable; malformed inputs and
+// missing native identity remain errors. No authority or fallback is added.
+std::optional<v1::MessageMetadata> initial_runtime_metadata(const ApplicationInputs& inputs);
 ServiceInstance parse_service_instance(const Json& value);
 Json metadata_binding(const v1::MessageMetadata& metadata);
 v1::MessageMetadata parse_metadata_binding(const Json& value);

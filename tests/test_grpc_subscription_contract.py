@@ -6,6 +6,18 @@ from pathlib import Path
 
 
 class SubscribeContractTests(unittest.TestCase):
+    def test_renewal_recreates_stream_without_skipping_authentication(self):
+        source = (Path(__file__).resolve().parents[1] / "src/runtime/grpc_main.cpp").read_text()
+        self.assertIn("inspect_session_inputs(inputs, token_file, token, metadata_bytes, ca)", source)
+        self.assertIn("catch (const ReauthenticationRequired&)", source)
+        self.assertIn("runtime.disconnect();", source)
+        self.assertIn("grpc::StatusCode::CANCELLED", source)
+        self.assertIn("grpc::StatusCode::UNAUTHENTICATED", source)
+        self.assertIn("pause(stop, 1000);", source)  # Real failures retain backoff.
+        renewal = source.rsplit("catch (const ReauthenticationRequired&)", 1)[1].split("catch (const std::exception&", 1)[0]
+        self.assertIn("continue;", renewal)
+        self.assertNotIn("pause(", renewal)
+
     def test_episode_outcomes_have_a_separate_repeatable_diagnostic_budget(self):
         source = (Path(__file__).resolve().parents[1] / "src/runtime/grpc_main.cpp").read_text()
         logger = source.split("void state(", 1)[1].split("void pause(", 1)[0]

@@ -30,6 +30,8 @@ public:
     std::optional<v2::CompletedEpisode> ingest(const ModelFrame& frame);
     std::optional<v2::CompletedEpisode> abort(v2::TerminalState state);
     bool capturing() const { return state_ != State::Idle; }
+    const char* activity_state() const {return state_==State::Active?"ACTIVE":state_==State::Post?"POST":"WAITING";}
+    std::optional<std::string> activity_id() const {return capturing()?std::optional<std::string>{episode_.source_event_id}:std::nullopt;}
     void reset_demo() { const auto source=uuid_; *this=ModelCapture(source); }
 private:
     enum class State { Idle, Active, Post };

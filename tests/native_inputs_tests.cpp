@@ -6,6 +6,8 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include <iostream>
+#include <fstream>
+#include <sys/stat.h>
 #include <stdexcept>
 using namespace brake_health;
 using namespace brake_health::runtime;
@@ -17,9 +19,16 @@ int main() {
   const std::map<std::string,std::string> environment{{"AOS_ITEM_ID","native-service"},{"AOS_SUBJECT_ID","native-subject"},{"AOS_INSTANCE_INDEX","0"},{"AOS_INSTANCE_ID","native-instance"}};
   const auto native=parse_service_inputs(release,environment);
   CHECK(native.service_version=="18.0.0" && native.instance.instance_index==0);
-  const auto public_input=std::string(R"({"schemaVersion":2,"unitSystemUid":"fixture-unit","unitRole":"validation","vdpContractVersion":"3.0.0","vdpContractSha256":")")+std::string(64,'b')+"\"}";
+  const auto public_input=std::string(R"({"schemaVersion":2,"unitSystemUid":"fixture-unit","unitRole":"validation","vdpContractVersion":"1.0.1","vdpContractSha256":")")+std::string(64,'b')+"\"}";
   const auto m=parse_metadata(public_input,native);
   CHECK(m.service_version=="18.0.0" && m.service_artifact_sha256.empty());
+  CHECK(m.vdp_contract_version=="1.0.1");
+  // The family document is common to VDP V1/V2/V3. These readers must not
+  // silently accept a proposed active-profile interface in legacy metadata.
+  for(const auto* key:{"activeVdpProfile","activeVdpRelease","capabilities"}) {
+   auto extended=parse_json(public_input).object();extended[key]=Json{std::string("unapproved")};
+   rejects([&]{parse_metadata(encode_json(Json{extended}),native);});
+  }
   // Explicit lifecycle mode stays alive without AOS_SECRET and shuts down
   // cleanly for a native update; Production is rejected before starting.
   auto production=m; production.unit_role=brake_health::v1::UnitRole::Production;
@@ -91,6 +100,42 @@ int main() {
   rejects([&]{runtime_metadata(inputs,public_input);});
   inputs.native=native;
   CHECK(runtime_metadata(inputs,public_input).service_instance==native.instance);
+  {
+   char path[]="/tmp/initial-public-inputs-XXXXXX";
+   CHECK(::mkdtemp(path)!=nullptr);
+   const std::filesystem::path root(path);
+   struct Cleanup {std::filesystem::path p;~Cleanup(){std::filesystem::remove_all(p);}} cleanup{root};
+   ApplicationInputs early{root/"metadata.json",root/"trust.pem",native};
+   const auto put=[](const std::filesystem::path& file,const std::string& text) {
+    std::ofstream stream(file);stream<<text;stream.close();CHECK(stream.good());
+   };
+   // Reproduce the original bootstrap's fatal read on first-input absence.
+   rejects([&]{read_file(early.metadata_file,8192);});
+   CHECK(!initial_runtime_metadata(early));
+   put(early.metadata_file,public_input);
+   CHECK(!initial_runtime_metadata(early)); // Trust has not arrived.
+   put(early.ca_file,"public-trust-fixture");
+   CHECK(initial_runtime_metadata(early)->service_instance==native.instance);
+   put(early.metadata_file,"{}");
+   rejects([&]{initial_runtime_metadata(early);});
+   put(early.metadata_file,public_input);
+   put(early.ca_file,"");
+   rejects([&]{initial_runtime_metadata(early);});
+   put(early.ca_file,std::string(65537,'x'));
+   rejects([&]{initial_runtime_metadata(early);});
+   std::filesystem::remove(early.ca_file);
+   std::filesystem::create_symlink(root/"missing",early.ca_file);
+   rejects([&]{initial_runtime_metadata(early);});
+   std::filesystem::remove(early.ca_file);
+   CHECK(::mkfifo(early.ca_file.c_str(),0600)==0);
+   rejects([&]{initial_runtime_metadata(early);}); // Must not hang on a FIFO.
+   std::filesystem::remove(early.ca_file);
+   put(early.ca_file,"public-trust-fixture");
+   CHECK(initial_runtime_metadata(early)->service_version==native.service_version);
+   early.native.reset();
+   std::filesystem::remove(early.metadata_file);
+   rejects([&]{initial_runtime_metadata(early);}); // Missing identity is not waiting.
+  }
   auto changed=parse_json(public_input).object();changed["vdpContractVersion"]=Json{std::string("4.0.0")};
   const auto updated=runtime_metadata(inputs,encode_json(Json{changed}));
   CHECK(updated.service_version==m.service_version && updated.service_instance==m.service_instance);

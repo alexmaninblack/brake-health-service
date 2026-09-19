@@ -23,7 +23,8 @@ Brake Health is one independently deployable product with immutable v1, v2
 and v3 release compositions. Its dependency-free C++17 domain layer now has
 two source-complete foundations:
 
-- v1 owns complete-frame validation, every-third-frame retention,
+- v1 owns complete-frame validation, source-time 100-ms bucket retention
+  (18 September cadence amendment; first actual valid sample, no interpolation),
   PRE/ACTIVE/POST capture, closed canonical chunk/completion serialization and
   a bounded POSIX spool; and
 - v2 accepts an adapter-completed fixed-point episode, runs only

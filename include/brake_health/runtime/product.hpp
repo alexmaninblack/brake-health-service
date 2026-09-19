@@ -4,6 +4,7 @@
 #include "brake_health/runtime/model_capture.hpp"
 #include "brake_health/runtime/advisory_runtime.hpp"
 #include "brake_health/runtime/derived_delivery.hpp"
+#include "brake_health/runtime/function_observation.hpp"
 #include <memory>
 
 namespace brake_health::runtime {
@@ -42,6 +43,10 @@ public:
     void demo_control_accepted(const std::string&);
     std::string advisory_readiness(std::int64_t now) const;
     FunctionalProfile profile() const { return profile_; }
+    std::optional<Json> observation_binding() const;
+    Json function_observation();
+    void input_observation(const std::string& connection,const std::string& state,const std::string& reason);
+    void advisory_observation(const std::string& state);
 private:
     std::pair<std::size_t, std::size_t> derived_usage() const;
     void complete_demo_reset(std::int64_t now);
@@ -56,6 +61,7 @@ private:
     std::int64_t telemetry_at_{-1};
     bool ready_{};
     unsigned delivery_cursor_{};
+    aosedge::FunctionFacts<ObservationCodec> function_;
     mutable std::mutex mutex_;
 };
 }  // namespace brake_health::runtime

@@ -23,6 +23,7 @@ public:
     bool accept(const AdvisoryDelivery& message, const HttpResponse& response);
     std::pair<std::size_t, std::size_t> outbox_usage() const;
     std::optional<std::string> current_gateway_state() const;
+    std::optional<std::string> current_request_id() const;
     std::string demo_poll(const v1::MessageMetadata&) const;
     void begin_demo_reset(const std::string&,const v1::MessageMetadata&,std::int64_t now);
     void reconcile_demo_reset(const v1::MessageMetadata&);

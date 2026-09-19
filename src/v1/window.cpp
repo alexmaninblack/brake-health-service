@@ -144,8 +144,11 @@ IngestResult WindowEngine::ingest(const SourceFrame& frame) {
 
     previous_source_epoch_ms_ = frame.source_epoch_ms;
     previous_monotonic_ms_ = frame.monotonic_ms;
-    ++valid_frame_count_;
-    result.retained = valid_frame_count_ % 3U == 0U;
+    // First actual valid frame per 100-ms source-time bucket, independent of
+    // 20/30-Hz ingress. Never fill an empty bucket or rewrite source time.
+    const auto bucket=frame.source_epoch_ms/100;
+    result.retained=!retained_source_bucket_||bucket!=*retained_source_bucket_;
+    if(result.retained)retained_source_bucket_=bucket;
 
     if (retrigger_suppressed_) {
         if (update_hold(

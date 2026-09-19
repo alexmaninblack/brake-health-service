@@ -69,14 +69,17 @@ class ProductExportTests(unittest.TestCase):
         names = ("native_service_inputs", "brake_private_token_session",
                  "brake_health_v1_contract", "brake_health_v2_contract",
                  "brake_health_runtime_contract", "brake_health_application_contract",
-                 "brake_demo_mock_isolation")
+                 "brake_demo_mock_isolation", "function_observation_delivery")
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "report.xml"
-            body = '<testsuite tests="7" failures="0">' + "".join(
+            body = '<testsuite tests="8" failures="0">' + "".join(
                 f'<testcase name="{name}" />' for name in names) + "</testsuite>"
             path.write_text(body, encoding="utf-8")
             self.assertEqual("passed", EXPORT.inspect_test_report(path)["ctest"])
-            self.assertEqual(7, EXPORT.inspect_test_report(path)["count"])
+            self.assertEqual(8, EXPORT.inspect_test_report(path)["count"])
+            path.write_text(body.replace('<testcase name="function_observation_delivery" />', ''), encoding="utf-8")
+            with self.assertRaises(EXPORT.ScaffoldError):
+                EXPORT.inspect_test_report(path)
             path.write_text(body.replace('failures="0"', 'failures="1"'), encoding="utf-8")
             with self.assertRaises(EXPORT.ScaffoldError):
                 EXPORT.inspect_test_report(path)

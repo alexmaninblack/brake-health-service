@@ -117,15 +117,16 @@ does not interpret an `arm64` directory name as architecture evidence.
 | `productTarget` | `BHS_BUILD_KUKSA_RUNTIME=ON` |
 | `functionalProfile` | Explicit `v1`, `v2` or `v3`, never inferred from a release number |
 | `binaries` | Exactly two entries: `path` relative to output, `sha256`, `size`, `interpreter`, `needed`, `glibcVersions` |
-| `tests` | `ctest: passed`, `count: 6`, report path and `reportSha256`; missing/failed/skipped suites refuse export |
+| `tests` | `ctest: passed`, `count: 8`, report path and `reportSha256`; missing/failed/skipped suites refuse export |
 | `dependencies` | Verified git source pins and OpenSSL archive digest |
 | `compilerRuntimePackages` | Exact installed GCC runtime package versions |
 | `baseImage`, `aptSnapshot` | Immutable build environment references |
 | `liveQualified` | Always `false`; compilation is not live qualification |
 
-The six required CTest targets cover native package/public/identity inputs,
+The eight required CTest targets cover native package/public/identity inputs,
 private token sessions, v1/v2 domains, runtime protocol/delivery and composed
-v1/v2/v3 application boundaries. The actual gRPC executable is a mandatory build target, but these
+v1/v2/v3 application boundaries, mock isolation and durable function observation
+delivery. The actual gRPC executable is a mandatory build target, but these
 tests do not claim a KAC/TLS subscription or live service E2E. Those proofs must
 follow through Demo Control with the approved public-trust/metadata binding.
 

@@ -279,6 +279,20 @@ void Runtime::update_vdp_metadata(const v1::MessageMetadata& metadata) {
     }
 }
 std::vector<v1::SpoolEntry> Runtime::inventory() { std::lock_guard<std::mutex> lock(mutex_); return spool_.inventory(); }
+std::pair<std::string,std::optional<std::string>> Runtime::activity() {
+    std::lock_guard<std::mutex> lock(mutex_);return {engine_.activity_state(),engine_.activity_id()};
+}
+std::pair<std::size_t,bool> Runtime::delivery_usage() {
+    std::lock_guard<std::mutex> lock(mutex_);std::pair<std::size_t,bool> result{};
+    for(const auto& event:spool_.inventory()){
+        result.second|=event.state==v1::SpoolState::Quarantined;
+        for(std::size_t i=0;i<event.chunk_count+(event.completion_present?1:0);++i){
+            const auto filename=i<event.chunk_count?message_filename(i):message_filename(std::nullopt);
+            if(!std::filesystem::exists((root_/event.event_id/filename).string()+".ack"))++result.first;
+        }
+    }
+    return result;
+}
 std::optional<PendingMessage> Runtime::next_message() {
     std::lock_guard<std::mutex> lock(mutex_);
     for (const auto& event : spool_.inventory()) {

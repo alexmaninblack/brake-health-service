@@ -105,11 +105,20 @@ void product_upgrade_and_delivery() {
         const auto result = drive(product);
         CHECK(result.status == v2::ProcessStatus::Produced && result.event_created);
         CHECK(product.analytics_ready());
+        const auto function=product.function_observation();
+        CHECK(function.at("input").at("state").string()=="RECEIVING");
+        CHECK(function.at("activity").at("state").string()=="WAITING");
+        CHECK(function.at("lastResult").at("id").string()==*result.assessment_id);
+        CHECK(function.at("lastResult").at("serviceVersion").string()=="21.0.0");
+        CHECK(function.at("advisory").at("state").string()=="NOT_SUPPORTED");
         initial = *product.model_state(); CHECK(initial.generation == 1 && initial.condition_band == v2::ConditionBand::InspectionRecommended);
         CHECK(!product.next_request(epoch + 10000));
         auto pending = product.next_message(); CHECK(pending && pending->kind == ProductDelivery::Kind::Derived);
         CHECK(parse_json(pending->bytes()).at("serviceVersion").string() == "21.0.0");
         CHECK(!product.accept(*pending, {503, "", 0}));
+        const auto delayed=product.function_observation();
+        CHECK(delayed.at("input").at("state").string()=="RECEIVING");
+        CHECK(delayed.at("delivery").at("state").string()=="RETRYING");
         CHECK(product.model_state()->generation == 1);
     }
     v3::AdvisoryRequest request;
@@ -131,6 +140,7 @@ void product_upgrade_and_delivery() {
         CHECK(product.observe_gateway(v3::gateway_status_json(status), epoch + 11020));
         CHECK(product.observe_gateway(v3::gateway_status_json(status), epoch + 11030));
         CHECK(product.gateway_state() == "APPLIED");
+        CHECK(product.function_observation().at("advisory").at("state").string()=="CONFIRMED");
         CHECK(!product.next_request(epoch + 29999));
         unsigned derived_count = 0, facts = 0;
         while (const auto message = product.next_message()) {
@@ -147,6 +157,7 @@ void product_upgrade_and_delivery() {
         CHECK(!product.gateway_state());
         CHECK(product.observe_gateway(v3::gateway_status_json(status), epoch + 30010));
         CHECK(!product.gateway_state()); // Old same-epoch evidence cannot replace current request status.
+        CHECK(product.function_observation().at("advisory").at("state").string()=="WAITING");
         product.request_written(*refreshed); CHECK(!product.next_request(epoch + 31000));
         product.stop(); CHECK(v2::state_json(*product.model_state()) == v2::state_json(initial));
     }
@@ -194,6 +205,8 @@ void profile_one_no_model() {
     std::vector<Signal> input{{19, epoch, true}, {0, epoch, true}, {0, epoch, true},
         {0, epoch, true}, {0, epoch, true}, {0, epoch, true}};
     CHECK(product.ingest(input, epoch + 5000, 0).valid);
+    CHECK(product.function_observation().at("advisory").at("state").string()=="NOT_SUPPORTED");
+    CHECK(product.function_observation().at("input").at("state").string()=="RECEIVING");
     for (auto& value : input) value.epoch_ms += 50;
     CHECK(!product.ingest(input, epoch + 5051, 50).valid);
 }
@@ -276,6 +289,8 @@ void invalid_product_frame_ends_capture() {
         const auto observation = product.ingest(bad, epoch + 5020, 5000);
         CHECK(!observation.valid && observation.event_completed);
         CHECK(!product.analytics_ready()); CHECK(product.model_state()->generation == 0);
+        CHECK(product.function_observation().at("activity").at("state").string()=="SKIPPED");
+        CHECK(product.function_observation().at("input").at("state").string()=="INVALID");
         CHECK(!product.next_message());
         product.stop(); CHECK(product.model_state()->generation == 0);
     }

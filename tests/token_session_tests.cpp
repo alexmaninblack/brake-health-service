@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: 2026 maninblack
 // SPDX-License-Identifier: Apache-2.0
 #include "brake_health/runtime/application.hpp"
+#include "brake_health/runtime/session_reconnect.hpp"
+#include <fstream>
 #include <cstdlib>
 #include <functional>
 #include <iostream>
@@ -35,6 +37,51 @@ int main() {
         rejects([&] { read_private_token(first); });
         atomic_private_file(first, "e30.e30.c2ln");
         check(read_private_token(first) == "e30.e30.c2ln");
+        // Host-only fixture bytes, not an issued credential or trust chain.
+        const ApplicationInputs inputs{first.parent_path() / "metadata.json", first.parent_path() / "trust.pem"};
+        const auto put = [](const fs::path& path, const std::string& bytes) {
+            std::ofstream file(path); file << bytes; file.close();
+            check(file.good());
+        };
+        put(inputs.metadata_file, "metadata");
+        put(inputs.ca_file, "trust");
+        const auto change = [&] {
+            return inspect_session_inputs(inputs, first, "e30.e30.c2ln", "metadata", "trust");
+        };
+        check(change() == SessionInputChange::None);
+        atomic_private_file(first, "e30.e30.bmV3");
+        check(change() == SessionInputChange::TokenReplaced);
+        put(inputs.metadata_file, "changed");
+        check(change() == SessionInputChange::Unavailable);
+        put(inputs.metadata_file, "metadata");
+        put(inputs.ca_file, "changed");
+        check(change() == SessionInputChange::Unavailable);
+        fs::remove(inputs.ca_file);
+        check(change() == SessionInputChange::Unavailable);
+        put(inputs.ca_file, "trust");
+        a.remove_token();
+        check(change() == SessionInputChange::Unavailable);
+        atomic_private_file(first, "e30.e30.bmV3");
+        check(::chmod(first.c_str(), 0600) == 0);
+        check(change() == SessionInputChange::Unavailable);
+        check(::chmod(first.c_str(), 0400) == 0);
+        check(change() == SessionInputChange::TokenReplaced);
+        SessionInterruption planned;
+        planned.observe(SessionInputChange::None);
+        check(!planned.cancelled());
+        planned.observe(SessionInputChange::TokenReplaced);
+        planned.observe(SessionInputChange::None);
+        check(planned.cancelled() && planned.token_replaced());
+        planned.observe(SessionInputChange::Unavailable);
+        planned.observe(SessionInputChange::TokenReplaced);
+        check(planned.cancelled() && !planned.token_replaced());
+        SessionInterruption missing;
+        missing.observe(SessionInputChange::Unavailable);
+        missing.observe(SessionInputChange::TokenReplaced);
+        check(!missing.token_replaced());
+        fs::remove(inputs.metadata_file);
+        fs::remove(inputs.ca_file);
+        atomic_private_file(first, "e30.e30.c2ln");
         rejects([&] { read_private_token(b.token_file()); });
         atomic_private_file(first, "e30.e30.bmV3");
         check(read_private_token(first) == "e30.e30.bmV3");
