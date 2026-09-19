@@ -539,10 +539,10 @@ int main(int argc, char** argv) {
             catch (const std::exception& error) {
                 runtime.disconnect();
                 const std::string code = error.what();
-                runtime.input_observation(code=="KUKSA_AUTH_UNAVAILABLE"?"ACCESS_DENIED":"DISCONNECTED",
-                    code=="KUKSA_AUTH_UNAVAILABLE"?"ACCESS_DENIED":code=="VDP_INCOMPATIBLE"?"INVALID":"DISCONNECTED",
-                    code=="KUKSA_AUTH_UNAVAILABLE"?"ACCESS_DENIED":code=="VDP_INCOMPATIBLE"?"INVALID_SAMPLE":"TRANSPORT_LOST");
-                const auto reason = code == "KUKSA_AUTH_UNAVAILABLE" ? "KUKSA_AUTH_UNAVAILABLE" :
+                const auto observation = subscription_failure_observation(code);
+                runtime.input_observation(observation.connection, observation.input, observation.reason);
+                const auto reason = code == "KUKSA_AUTH_PENDING" ? "KUKSA_AUTH_PENDING" :
+                    code == "KUKSA_AUTH_UNAVAILABLE" ? "KUKSA_AUTH_UNAVAILABLE" :
                     code == "VDP_INCOMPATIBLE" ? "VDP_INCOMPATIBLE" :
                     code == "IMMUTABLE_IDENTITY_CHANGED" || code == "INPUT_FILE_UNAVAILABLE" ? "STATE_INVALID" : "KUKSA_DATA_UNAVAILABLE";
                 log.analytics(false, reason);

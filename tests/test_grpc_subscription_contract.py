@@ -6,6 +6,13 @@ from pathlib import Path
 
 
 class SubscribeContractTests(unittest.TestCase):
+    def test_subscription_failures_use_the_tested_observation_mapping(self):
+        source = (Path(__file__).resolve().parents[1] / "src/runtime/grpc_main.cpp").read_text()
+        self.assertIn("const auto observation = subscription_failure_observation(code);", source)
+        self.assertIn("runtime.input_observation(observation.connection, observation.input, observation.reason);", source)
+        self.assertIn("grpc::StatusCode::UNAUTHENTICATED", source)
+        self.assertIn("grpc::StatusCode::PERMISSION_DENIED", source)
+
     def test_renewal_recreates_stream_without_skipping_authentication(self):
         source = (Path(__file__).resolve().parents[1] / "src/runtime/grpc_main.cpp").read_text()
         self.assertIn("inspect_session_inputs(inputs, token_file, token, metadata_bytes, ca)", source)

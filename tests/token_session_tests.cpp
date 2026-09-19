@@ -19,7 +19,21 @@ void rejects(const std::function<void()>& fn) {
     try { fn(); } catch (const std::exception&) { rejected = true; }
     check(rejected);
 }
+void rejects_code(const std::function<void()>& fn, const std::string& expected) {
+    try { fn(); } catch (const std::exception& error) {
+        check(error.what() == expected);
+        return;
+    }
+    check(false);
+}
 int main() {
+    const auto pending = subscription_failure_observation("KUKSA_AUTH_PENDING");
+    check(std::string(pending.connection) == "STARTING" && std::string(pending.input) == "WAITING" &&
+          std::string(pending.reason) == "AWAITING_INPUT");
+    const auto denied = subscription_failure_observation("KUKSA_AUTH_UNAVAILABLE");
+    check(std::string(denied.connection) == "ACCESS_DENIED" && std::string(denied.input) == "ACCESS_DENIED");
+    check(std::string(subscription_failure_observation("KUKSA_DATA_UNAVAILABLE").input) == "DISCONNECTED");
+    check(std::string(subscription_failure_observation("VDP_INCOMPATIBLE").input) == "INVALID");
     auto name = (fs::canonical(fs::temp_directory_path()) / "token-session-tests-XXXXXX").string();
     check(::mkdtemp(name.data()) != nullptr);
     const fs::path root(name);
@@ -34,9 +48,12 @@ int main() {
         struct stat info{};
         check(::lstat(first.parent_path().c_str(), &info) == 0);
         check((info.st_mode & 07777) == 0700 && info.st_uid == ::geteuid() && info.st_gid == ::getegid());
-        rejects([&] { read_private_token(first); });
+        rejects_code([&] { read_private_token(first); }, "KUKSA_AUTH_PENDING");
         atomic_private_file(first, "e30.e30.c2ln");
         check(read_private_token(first) == "e30.e30.c2ln");
+        atomic_private_file(first, "malformed");
+        rejects_code([&] { read_private_token(first); }, "KUKSA_AUTH_UNAVAILABLE");
+        atomic_private_file(first, "e30.e30.c2ln");
         // Host-only fixture bytes, not an issued credential or trust chain.
         const ApplicationInputs inputs{first.parent_path() / "metadata.json", first.parent_path() / "trust.pem"};
         const auto put = [](const fs::path& path, const std::string& bytes) {
@@ -64,6 +81,7 @@ int main() {
         atomic_private_file(first, "e30.e30.bmV3");
         check(::chmod(first.c_str(), 0600) == 0);
         check(change() == SessionInputChange::Unavailable);
+        rejects_code([&] { read_private_token(first); }, "KUKSA_AUTH_UNAVAILABLE");
         check(::chmod(first.c_str(), 0400) == 0);
         check(change() == SessionInputChange::TokenReplaced);
         SessionInterruption planned;
@@ -100,6 +118,7 @@ int main() {
         fs::remove(root / "parent-link");
         a.remove_token();
         a.remove_token(); // Expiry/terminal denial is idempotent and private.
+        rejects_code([&] { read_private_token(first); }, "KUKSA_AUTH_PENDING");
         fs::create_symlink(b.token_file(), first);
         rejects([&] { read_private_token(first); });
         a.remove_token();

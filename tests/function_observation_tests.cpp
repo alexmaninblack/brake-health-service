@@ -10,7 +10,7 @@ using namespace brake_health::runtime;
 using Stream=ObservationStream;using J=Json;using O=J::Object;using A=J::Array;
 namespace {
 template<class F>void rejects(F fn){bool rejected=false;try{fn();}catch(...){rejected=true;}assert(rejected);}
-struct Temp{std::filesystem::path root;Temp(){char value[]="/tmp/observation-XXXXXX";root=::mkdtemp(value);}~Temp(){std::filesystem::remove_all(root);}};
+struct Temp{std::filesystem::path root;Temp(){auto value=(std::filesystem::canonical(std::filesystem::temp_directory_path())/"observation-XXXXXX").string();const auto created=::mkdtemp(value.data());assert(created);root=created;}~Temp(){std::filesystem::remove_all(root);}};
 J s(const std::string& v){return J{v};}J n(std::int64_t v){return J{v};}
 J envelope(){return J{O{{"messageType",s("BRAKE_FUNCTION_OBSERVATION")},{"unitSystemUid",s("test-fixture")},{"unitRole",s("VALIDATION")},{"serviceVersion",s("10.0.0")},{"serviceProfile",s("v3")},{"serviceInstance",J{O{{"serviceId",s("service")},{"subjectId",s("subject")},{"instanceIndex",n(0)},{"instanceId",s("instance")}}}}}};}
 J content(){return J{O{{"connection",s("STARTING")},{"input",J{O{{"state",s("WAITING")},{"reason",s("AWAITING_INPUT")}}}},{"activity",J{O{{"state",s("WAITING")},{"reason",s("NOT_QUALIFIED")},{"episodeId",J{nullptr}}}}},{"delivery",J{O{{"state",s("IDLE")},{"queuedMessages",n(0)},{"lastReceiptAt",J{nullptr}}}}},{"advisory",J{O{{"state",s("WAITING")},{"requestId",J{nullptr}}}}},{"lastResult",J{nullptr}}}};}

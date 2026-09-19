@@ -154,7 +154,9 @@ std::string read_private_token(const std::filesystem::path& path) {
     const int directory = open_private_token_directory(path.parent_path());
     struct CloseDirectory { int fd; ~CloseDirectory() { ::close(fd); } } close_directory{directory};
     const int fd = ::openat(directory, path.filename().c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
-    if (fd < 0) throw std::runtime_error("KUKSA_AUTH_UNAVAILABLE");
+    // Absence in a validated private directory is not proof of denied access.
+    // Unsafe paths/files and rejected RPC credentials remain failures.
+    if (fd < 0) throw std::runtime_error(errno == ENOENT ? "KUKSA_AUTH_PENDING" : "KUKSA_AUTH_UNAVAILABLE");
     struct Close { int fd; ~Close() { ::close(fd); } } close{fd};
     struct stat info{};
     if (::fstat(fd, &info) != 0 || !S_ISREG(info.st_mode) || info.st_uid != ::geteuid() || info.st_nlink != 1 ||
