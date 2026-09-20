@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "brake_health/runtime/application.hpp"
 #include "brake_health/runtime/session_reconnect.hpp"
+#include "brake_health/runtime/readiness_publication.hpp"
 #include <fstream>
 #include <cstdlib>
 #include <functional>
@@ -27,6 +28,31 @@ void rejects_code(const std::function<void()>& fn, const std::string& expected) 
     check(false);
 }
 int main() {
+    // Token renewal: false can be published before the first fresh sample.
+    // Recovery must not wait for the old five-second heartbeat.
+    ReadinessPublication readiness;
+    check(readiness.due(false, 0)); readiness.completed(false, 0, true);
+    check(!readiness.due(false, 174));
+    check(readiness.due(true, 174)); readiness.completed(true, 174, true);
+    check(!readiness.due(true, 5173)); check(readiness.due(true, 5174));
+    // Genuine loss is prompt; bursts are bounded to one write per 100 ms.
+    check(readiness.due(false, 300)); readiness.completed(false, 300, true);
+    check(!readiness.due(true, 399)); check(readiness.due(true, 400));
+    // Denied, failed or uncertain writes never establish accepted readiness.
+    readiness.completed(true, 400, false);
+    check(!readiness.due(true, 1399)); check(readiness.due(true, 1400));
+    readiness.completed(true, 1400, true);
+    check(!readiness.due(true, 6399)); check(readiness.due(false, 1500));
+    readiness.completed(true, 6400, false);
+    check(!readiness.due(true, 7399)); check(readiness.due(true, 7400));
+    // A new session/peer starts independently; no fabricated false if data
+    // arrived first, and no inherited successful publication after restart.
+    ReadinessPublication fresh;
+    check(fresh.due(true, 0)); fresh.completed(true, 0, true);
+    check(!fresh.due(true, 4999)); check(fresh.due(true, 5000));
+    ReadinessPublication failed_initial;
+    check(failed_initial.due(false, 0)); failed_initial.completed(false, 0, false);
+    check(!failed_initial.due(true, 999)); check(failed_initial.due(true, 1000));
     const auto pending = subscription_failure_observation("KUKSA_AUTH_PENDING");
     check(std::string(pending.connection) == "STARTING" && std::string(pending.input) == "WAITING" &&
           std::string(pending.reason) == "AWAITING_INPUT");

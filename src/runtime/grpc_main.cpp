@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "brake_health/runtime/application.hpp"
 #include "brake_health/runtime/session_reconnect.hpp"
+#include "brake_health/runtime/readiness_publication.hpp"
 #include "brake_health/runtime/product.hpp"
 #include "brake_health/runtime/json.hpp"
 #include "kuksa/val/v1/val.grpc.pb.h"
@@ -447,7 +448,7 @@ void advisory_session(Product& runtime, const ApplicationInputs& inputs, std::at
         ~ReaderJoin() { context->TryCancel(); if (worker.joinable()) worker.join(); }
     } reader_join{reader_context, observations};
     auto last_attempt = std::int64_t{-1000};
-    std::int64_t next_readiness=0;
+    ReadinessPublication readiness;
     while (!invalid && !stop && !interrupted) {
         const auto now = boot_milliseconds();
         if (now - last_attempt >= 1000) {
@@ -475,13 +476,19 @@ void advisory_session(Product& runtime, const ApplicationInputs& inputs, std::at
                 }
             }
         }
-        if(boot_milliseconds()>=next_readiness) {
+        const auto readiness_value = runtime.advisory_readiness(wall_milliseconds());
+        const bool ready = parse_json(readiness_value).at("ready").boolean();
+        if(readiness.due(ready, boot_milliseconds())) {
             val::SetRequest set;val::SetResponse result;
             auto* update=set.add_updates();update->add_fields(val::FIELD_ACTUATOR_TARGET);
             update->mutable_entry()->set_path(brake_health::v3::kReadinessPath);
-            update->mutable_entry()->mutable_actuator_target()->set_string(runtime.advisory_readiness(wall_milliseconds()));
-            const auto set_context=context();(void)stub->Set(set_context.get(),set,&result);
-            next_readiness=boot_milliseconds()+5000;
+            update->mutable_entry()->mutable_actuator_target()->set_string(readiness_value);
+            const auto set_context=context();
+            const auto outcome=stub->Set(set_context.get(),set,&result);
+            const bool accepted=outcome.ok() && !result.has_error() && !result.errors_size();
+            readiness.completed(ready, boot_milliseconds(), accepted);
+            log.state("ADVISORY_READINESS_PUBLICATION", accepted ? (ready ? "READY" : "NOT_READY") : "FAILED",
+                accepted ? "NONE" : "KUKSA_SET_NOT_ACCEPTED");
         }
         pause(stop, 100);
     }
