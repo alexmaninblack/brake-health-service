@@ -3,7 +3,19 @@
 
 # Brake Health Service
 
-## Temporary Test-only lifecycle mode
+## Current integration evidence — 23 September 2026
+
+Normal demo packages use real KUKSA telemetry with native Aos identity and
+permissions. V1/V2/V3 progression, local analysis/advisory, offline operation
+and later backend delivery have scoped staging evidence in the integration
+[current baseline](../aosedge-sdv-demo/docs/qualification/current-baseline.md).
+The latest readiness-publication correction was ARM64-built and qualified as
+Brake78/V3 with VDP98/V3 and Tire44/V1; see the
+[bounded receipt](../aosedge-sdv-demo/docs/qualification/advisory-readiness-renewal-2026-09-20.md).
+This does not claim full production calibration, all crash cases or current
+Cloud/VM state. Source publication and Factory provenance are distinct.
+
+## Historical opt-in Test-only lifecycle mode
 
 The explicit final bootstrap argument `--demo-no-telemetry` is a temporary
 Cloud-permissions workaround accepted on 11 September 2026. It validates native
@@ -39,7 +51,8 @@ authenticated TLS KUKSA and independent durable backend delivery.
 
 Demo Control's integration owner reported a successful real Linux ARM64/gRPC
 v1 build at source `81e6afc1563239c8d75fb7183a50546cde7ddc58`.
-Subsequent recovery/readiness corrections require their own product build.
+Subsequent recovery/readiness corrections received their own scoped product
+build/live proof as linked above; the older build is not the latest checkpoint.
 Neither source tests nor ELF compilation prove Service-identity permissions,
 node-rootfs compatibility, transport, resource quotas or deployment success.
 See the [explicit deployment gates](docs/runtime-executable.md).
