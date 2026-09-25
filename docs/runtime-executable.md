@@ -3,6 +3,13 @@
 
 # Brake executable integration boundary
 
+Current reading — demo-v1.1 / Factory39: this file retains dated source
+increments. Their original “not deployed”/pending ARM64 statements describe
+those checkpoints, not today's product. Use [runtime profiles](runtime-profiles.md),
+[architecture](architecture.md) and the [current integration evidence](../README.md)
+for implemented behavior and scoped deployment proof. No historical source
+test is retroactively promoted to live acceptance.
+
 ## 18 September: approved V1 cadence and observation increment
 
 The current V1 acquisition uses the first complete valid sample in each

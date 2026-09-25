@@ -7,9 +7,9 @@
 
 The service is an independently deployable Aos application. It consumes a
 compatible version of the vehicle telemetry contract through the
-`kuksa.val.v1` API exposed by the Aos resource named `kuksa`. Future behavior
-will derive brake-health observations and recommendations locally in the
-vehicle without making Cloud connectivity part of the decision path.
+`kuksa.val.v1` API exposed by the Aos resource named `kuksa`. V1 captures brake
+windows, V2 derives local synthetic condition assessments and V3 adds typed
+maintenance advisory, without Cloud connectivity in the local decision path.
 
 ```text
 vehicle provider -> KUKSA Databroker -> Aos resource "kuksa" -> this service
@@ -65,21 +65,27 @@ resource mode without a reviewed use case.
 
 ## Current Behavior
 
-The C++17 v1/v2 libraries implement domain and durable-storage primitives. A
-bounded v1 composition library now adds coherent-frame assembly, persistent
-capture/delivery coordination, KAC envelope validation, private file handling
-and fixed isolated HTTP transport primitives. Host tests cover these owned
-boundaries; the [runtime increment](runtime-increment.md) records the exact
-scope and unresolved authoritative metadata, public TLS trust and ARM64 gates.
-The subsequent [executable candidate](runtime-executable.md) adds a host-compiled
-credential bootstrap and an actual C++ gRPC adapter source, which still awaits
-product toolchain compilation and TLS fixture qualification. Neither is yet
-wired into the Aos artifact. The packaged shell executable is
-unchanged: it prints one English diagnostic message and exits. It does not open
-a KUKSA or KAC connection, subscribe to telemetry, persist product data or send
-data outside the vehicle. Adapter composition, packaging, ARM64 artifact
-production, live D4-003 calibration and D4-023 quota qualification remain
-separate gates.
+The immutable compile-time V1/V2/V3 [runtime profiles](runtime-profiles.md)
+compose real TLS KUKSA acquisition, local processing, persistent model/outboxes,
+independent backend transport and V3 Gateway-correlated advisory. The Aos
+entrypoint is the real credential bootstrap plus ARM64 product executable,
+not the historical R-3 shell scaffold.
+
+Public input schema 2 has five fields; package release and native instance
+identity have separate authorities. KAC supplies private short-lived
+credentials from current native IAM permissions. Services validate actual
+local inputs and recover without Cloud; absence of input is not proof of an
+incompatible installed VDP. Presenter maps the exact Cloud-installed profile.
+
+[Reset Driver Advisory](advisory-demo-control.md) resets only the selected
+model/advisory state through a command/application acknowledgement, preserving
+history, queues and ordinary identity/sequence continuity. Stop/crash is not
+a Reset. See the [integration matrix](../../aosedge-sdv-demo/docs/architecture/current-implementation.md)
+for scoped .39 ignition/offline proof and remaining calibration/fault gates.
+
+The original [runtime increment](runtime-increment.md) is historical source
+evidence. Its original packaging/ARM64 gaps are not current product status.
+The diagnostic scaffold is never a product fallback.
 
 ## Configuration Ownership
 
@@ -88,7 +94,7 @@ separate gates.
 - The platform owns the unmodified Eclipse KUKSA Databroker, Vehicle Data
   Provider, removable fixed-resource KAC helper, Aos IAM permission state and
   KUKSA trust configuration. KAC is not part of this repository or VDP.
-- A later Service-owned bootstrap adapter will present only its per-instance
+- The Service-owned bootstrap presents only its per-instance
   `AOS_SECRET` over the private KAC socket. Resource `kuksa`, paths, modes,
   subject, audience, claims and lifetime are not caller-selected; KAC returns
   either the current IAM-derived short-lived JWT or a fail-closed rejection.

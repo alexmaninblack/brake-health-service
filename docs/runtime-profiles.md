@@ -69,8 +69,11 @@ after 20 seconds has a new UUIDv5 request ID and monotonic sequence with a
 30-second lease. An already active v2 condition creates one v3 activation using
 its accepted last assessment, without a synthetic assessment or band event.
 A subsequent same-band assessment does not invent another band transition.
-Current monotonic model behavior never emits CLEAR; stop/crash lets the Gateway
-expire the lease. A future CLEAR-producing migration is outside this runtime.
+Ordinary monotonic model processing does not emit CLEAR; stop/crash lets the
+Gateway expire the lease. The separately accepted [Reset Driver Advisory](advisory-demo-control.md)
+command is the explicit exception: it resets the selected model/advisory and
+requires correlated Gateway CLEARED acknowledgement. It is not automatic
+recovery or a model-threshold change.
 
 The private advisory journal records hashed before/after state and the optional
 exact fact. Recovery verifies the closed state schemas, complete canonical

@@ -3,17 +3,21 @@
 
 # Brake Health Service
 
-## Current integration evidence — 23 September 2026
+## Current integration evidence — 24 September 2026
 
-Normal demo packages use real KUKSA telemetry with native Aos identity and
-permissions. V1/V2/V3 progression, local analysis/advisory, offline operation
-and later backend delivery have scoped staging evidence in the integration
-[current baseline](../aosedge-sdv-demo/docs/qualification/current-baseline.md).
-The latest readiness-publication correction was ARM64-built and qualified as
-Brake78/V3 with VDP98/V3 and Tire44/V1; see the
-[bounded receipt](../aosedge-sdv-demo/docs/qualification/advisory-readiness-renewal-2026-09-20.md).
-This does not claim full production calibration, all crash cases or current
-Cloud/VM state. Source publication and Factory provenance are distinct.
+Normal packages use real KUKSA telemetry and native Aos identity/permissions.
+The demo-v1.1 return point binds this source. Dated Factory39 receipts use
+**Brake92/V3, VDP117/V3 and Tire49/V1**; they cover retained model/storage identity
+during [ignition](../aosedge-sdv-demo/docs/qualification/factory-39-ignition-2026-09-24.md)
+and local operation/exact derived-message replay during
+[externalOFF/ON](../aosedge-sdv-demo/docs/qualification/factory-39-offline-2026-09-24.md).
+Earlier V1/V2/V3 and readiness receipts remain in the [baseline](../aosedge-sdv-demo/docs/qualification/current-baseline.md).
+
+This does not qualify a fresh all-version .39 cycle, full model calibration,
+nonempty-outbox power loss or every resource/fault case. Short readiness
+transitions remain an explicit issue; these are dated facts, not live status.
+Normal packages request `noFileLimit: 1024` and `pidsLimit: 24`; these are
+requested bounds, not measurements.
 
 ## Historical opt-in Test-only lifecycle mode
 
@@ -27,8 +31,9 @@ It is never selected automatically when authorization fails.
 
 Build, package and publish through Demo Control. Preparation requires both
 `--without-permissions --demo-no-telemetry`; this explicit package mode also
-requests `noFileLimit: 1024` for native container construction. Normal bootstrap
-authorization and normal package contracts remain unchanged.
+requests `noFileLimit: 1024` for native container construction. That file limit
+also applies to normal telemetry-enabled packages; the workaround does not
+authorize fallback from failed permissions.
 
 Independently deployable AosEdge-managed service consuming versioned KUKSA/VSS
 vehicle telemetry for on-board brake-health analysis.
@@ -67,7 +72,7 @@ substitutes the diagnostic scaffold.
 ## Ownership Boundary
 
 This repository owns a cloud-managed application with an independent Aos
-service/SOTA lifecycle. The service will consume a published vehicle-data
+service/SOTA lifecycle. The service consumes a published vehicle-data
 contract through KUKSA and must remain independent of:
 
 - CARLA libraries and endpoints;
