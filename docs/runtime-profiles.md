@@ -69,6 +69,11 @@ after 20 seconds has a new UUIDv5 request ID and monotonic sequence with a
 30-second lease. An already active v2 condition creates one v3 activation using
 its accepted last assessment, without a synthetic assessment or band event.
 A subsequent same-band assessment does not invent another band transition.
+Repeated advisory-state reads compare the complete bounded persisted bytes.
+Unchanged bytes reuse their validated parse; changed bytes are fully validated,
+and unreadable or malformed files fail closed without using the old parse.
+This avoids repeated schema/history parsing in the per-frame reset check without
+making file timestamps, size or an in-memory snapshot authoritative.
 Ordinary monotonic model processing does not emit CLEAR; stop/crash lets the
 Gateway expire the lease. The separately accepted [Reset Driver Advisory](advisory-demo-control.md)
 command is the explicit exception: it resets the selected model/advisory and
@@ -115,6 +120,20 @@ analytics, backend acknowledgement and v3 internal advisory capability.
 A cached Gateway status is reconciled as evidence but does not establish fresh
 chain readiness: that requires correlation to a request attempted in the
 current session. A single command outcome is not treated as capability failure.
+
+Planned token replacement recreates authenticated subscriptions without itself
+aborting an in-progress capture. The existing source-time discontinuity rules
+and monotonic input-expiry guard still abort real gaps. Expiry and ingest share
+the runtime lock, preventing a delayed expiry decision from discarding newer
+input. Advisory readiness samples wall time after acquiring that same lock;
+future timestamps and the unchanged freshness limit still fail closed.
+
+The 3 October 2026 retained-M1 transient proof completed three Brake products
+and a 420.509-second observation with no telemetry-expiry or advisory-readiness
+failure, unchanged native 250-DMIPS enforcement and no platform restarts.
+Token replacement remained observable as REAUTHENTICATING, not falsely reported
+as fresh Gateway confirmation. Canonical packaging, native SOTA and complete
+Factory/installed-kit regression remain separate qualification gates.
 
 This is a source/host-tested checkpoint, not a successful deployment claim.
 The integration owner reported a successful real Linux ARM64/gRPC v1 build of

@@ -109,7 +109,7 @@ ProductObservation Product::ingest(const std::vector<Signal>& values, std::int64
             function_.activity(activity,std::string(activity)=="WAITING"?"NOT_QUALIFIED":"NONE",capture_.activity_id());
         }
     }
-    if(result.valid)function_.input("CONNECTED","RECEIVING","NONE");
+    if(result.valid){input_mono_=mono;function_.input("CONNECTED","RECEIVING","NONE");}
     return result;
 }
 void Product::update_metadata(const v1::MessageMetadata& m) {
@@ -122,13 +122,27 @@ void Product::update_metadata(const v1::MessageMetadata& m) {
 }
 void Product::disconnect() {
     std::lock_guard<std::mutex> lock(mutex_); legacy_.disconnect();
+    input_mono_=-1;
     function_.interruption("SOURCE_DISCONTINUITY");
     function_.input("DISCONNECTED","DISCONNECTED","TRANSPORT_LOST");
     capture_.abort(v2::TerminalState::IncompleteSourceGap); ready_ = false;
 }
+void Product::reauthenticate() {
+    // Planned replacement is not a missing source sample. Monotonic expiry
+    // and the capture's source-gap checks remain authoritative across sessions.
+    input_observation("REAUTHENTICATING","WAITING","REAUTHENTICATING");
+}
+bool Product::expire_input(std::int64_t observed_mono) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const auto freshness=profile_==FunctionalProfile::V1?v1::kMaximumSourceAgeMs:v2::kMaximumSourceAgeMs;
+    if(input_mono_<0 || observed_mono-input_mono_<=freshness)return false;
+    input_mono_=-1;legacy_.disconnect();capture_.abort(v2::TerminalState::IncompleteSourceGap);ready_=false;
+    function_.interruption("SOURCE_DISCONTINUITY");function_.input("CONNECTED","STALE","SOURCE_GAP");
+    return true;
+}
 void Product::stop() {
     std::lock_guard<std::mutex> lock(mutex_); legacy_.stop();
-    capture_.abort(v2::TerminalState::AbortedServiceStop); ready_ = false;
+    input_mono_=-1;capture_.abort(v2::TerminalState::AbortedServiceStop); ready_ = false;
 }
 bool Product::analytics_ready() const {
     std::lock_guard<std::mutex> lock(mutex_); return ready_ && (!model_ || model_->ready());
@@ -214,7 +228,13 @@ void Product::demo_control_accepted(const std::string& bytes) {
     std::lock_guard<std::mutex> lock(mutex_);if(advisory_)advisory_->reset_acknowledged(bytes);
 }
 std::string Product::advisory_readiness(std::int64_t now) const {
+    return advisory_readiness([now] { return now; });
+}
+std::string Product::advisory_readiness(const std::function<std::int64_t()>& clock) const {
     std::lock_guard<std::mutex> lock(mutex_);
+    // Sample after acquiring the same lock as ingest. A pre-lock timestamp
+    // can precede a newer valid frame accepted while this caller was waiting.
+    const auto now = clock();
     return encode_json(Json{Json::Object{{"schemaVersion",Json{std::int64_t{1}}},{"ready",Json{advisory_&&ready_&&model_->ready()&&telemetry_at_>=0&&now>=telemetry_at_&&now-telemetry_at_<=5000}},
         {"observedAt",Json{utc_timestamp(now)}}}});
 }

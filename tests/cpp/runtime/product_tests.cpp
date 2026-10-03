@@ -276,6 +276,42 @@ void advisory_corrupt_journal_preserved() {
     rejects([&] { AdvisoryRuntime invalid(state, outbox, model); });
     CHECK(read_file(state / "state.json", 65536) == before); CHECK(std::filesystem::is_empty(outbox));
 }
+void advisory_validation_memo_reads_authoritative_bytes() {
+    Directory directory;const auto state=directory.path/"state",outbox=directory.path/"outbox";
+    const auto model=active_model();AdvisoryRuntime runtime(state,outbox,model);
+    const auto first=runtime.next_request(model,metadata("110.0.0"),epoch);CHECK(first);
+    runtime.written(*first);
+    CHECK(!runtime.reset_pending());
+    CHECK(!runtime.next_request(model,metadata("110.0.0"),epoch+100));
+    const auto valid=read_file(state/"state.json",65536);
+    const auto old_time=std::filesystem::last_write_time(state/"state.json");
+    auto corrupt=valid;const auto at=corrupt.find("schemaVersion\":1");CHECK(at!=std::string::npos);
+    corrupt[at+15]='2';CHECK(corrupt.size()==valid.size());
+    atomic_private_file(state/"state.json",corrupt,0600);
+    std::filesystem::last_write_time(state/"state.json",old_time);
+    rejects([&]{(void)runtime.reset_pending();});
+    rejects([&]{(void)runtime.next_request(model,metadata("110.0.0"),epoch+200);});
+    atomic_private_file(state/"state.json",valid,0600);CHECK(!runtime.reset_pending());
+    std::filesystem::remove(state/"state.json");rejects([&]{(void)runtime.reset_pending();});
+    atomic_private_file(state/"state.json",valid,0600);
+    const auto next=runtime.next_request(model,metadata("110.0.0"),epoch+20000);
+    CHECK(next&&next->sequence==first->sequence+1);
+    runtime.written(*next);CHECK(!runtime.next_request(model,metadata("110.0.0"),epoch+20100));
+    AdvisoryRuntime restarted(state,outbox,model);
+    CHECK(restarted.current_request_id()==runtime.current_request_id());
+}
+void readiness_samples_supplied_clock_and_retains_freshness_guards() {
+    Directory directory;Product product(directory.path,metadata("110.0.0"),FunctionalProfile::V3);
+    CHECK(product.ingest(sample(100),epoch+120,100).valid);
+    int calls=0;const auto clock=[&]{++calls;return epoch+120;};
+    const auto ready=parse_json(product.advisory_readiness(clock));
+    CHECK(calls==1);CHECK(ready.at("ready").boolean());
+    CHECK(ready.at("observedAt").string()==utc_timestamp(epoch+120));
+    CHECK(!parse_json(product.advisory_readiness([&]{return epoch+119;})).at("ready").boolean());
+    CHECK(parse_json(product.advisory_readiness([&]{return epoch+5120;})).at("ready").boolean());
+    CHECK(!parse_json(product.advisory_readiness([&]{return epoch+5121;})).at("ready").boolean());
+    product.disconnect();CHECK(!parse_json(product.advisory_readiness(clock)).at("ready").boolean());
+}
 void invalid_product_frame_ends_capture() {
     for (const bool missing : {true, false}) {
         Directory directory;
@@ -522,7 +558,55 @@ void source_recovery_preserves_model_and_delivery() {
     native_fixture=false;
 }
 void native_product_contract_tests() {
+    {
+      Directory directory;Product product(directory.path,metadata("110.0.0"),FunctionalProfile::V1);
+      std::string original;
+      for(int i=0;i<280;++i) {
+        const auto time=i*1000/30;auto values=sample(time);values.resize(6);
+        values[5].value=values[2].value;values[2].value=0;values[3].value=0;values[4].value=0;
+        if(i==120) {
+          original=product.function_observation().at("activity").at("episodeId").string();
+          product.reauthenticate();
+        }
+        CHECK(product.ingest(values,epoch+time+20,time).valid);
+      }
+      CHECK(product.function_observation().at("lastResult").at("id").string()==original);
+    }
+    for(const auto profile:{FunctionalProfile::V2,FunctionalProfile::V3}) {
+      for(const auto* mode:{"renew","disconnect","expired","metadata-change"}) {
+        Directory directory;Product product(directory.path,metadata("110.0.0"),profile);
+        std::optional<v2::ProcessResult> result;std::string original;
+        for(int i=0;i<280;++i) {
+          const auto time=i*1000/30;
+          if(i==120) {
+            original=product.function_observation().at("activity").at("episodeId").string();
+            product.reauthenticate();
+            CHECK(product.function_observation().at("connection").string()=="REAUTHENTICATING");
+            if(std::string(mode)=="disconnect")product.disconnect();
+            if(std::string(mode)=="expired")CHECK(product.expire_input(9001));
+            if(std::string(mode)=="metadata-change") {
+              auto changed=metadata("110.0.0");changed.vdp_contract_sha256=std::string(64,'3');product.update_metadata(changed);
+            }
+          }
+          const auto observation=product.ingest(sample(time),epoch+time+20,time);
+          if(observation.analysis)result=observation.analysis;
+        }
+        if(std::string(mode)=="renew") {
+          CHECK(result&&result->status==v2::ProcessStatus::Produced);
+          CHECK(product.model_state()->last_applied_source_event_id==original);
+        } else CHECK(!result||result->status!=v2::ProcessStatus::Produced||product.model_state()->last_applied_source_event_id!=original);
+      }
+    }
+    {
+      Directory directory;Product product(directory.path,metadata("110.0.0"),FunctionalProfile::V3);
+      CHECK(!product.expire_input(10000));CHECK(product.ingest(sample(0),epoch+20,0).valid);
+      CHECK(!product.expire_input(5000));CHECK(product.ingest(sample(100),epoch+120,5100).valid);
+      CHECK(!product.expire_input(5001));CHECK(!product.expire_input(10100));CHECK(product.expire_input(10101));
+      CHECK(!product.expire_input(10102));
+    }
     source_recovery_preserves_model_and_delivery();
+    advisory_validation_memo_reads_authoritative_bytes();
+    readiness_samples_supplied_clock_and_retains_freshness_guards();
     reset_product_contract();
     native_fixture=true;
     product_upgrade_and_delivery();advisory_overflow_and_conflict();

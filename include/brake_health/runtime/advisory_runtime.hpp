@@ -34,10 +34,14 @@ public:
     std::optional<std::string> reset_ack(std::int64_t now);
     void reset_acknowledged(const std::string&);
 private:
-    Json load() const;
+    const Json& load() const;
     void commit(const Json& before, const Json& after, const std::optional<AdvisoryDelivery>& fact = {});
     void recover();
     std::filesystem::path state_root_, outbox_root_;
     std::string epoch_;
+    // Parsed validation memo only: re-read and compare every byte on each use.
+    // Changed or unreadable persisted state must still fail closed.
+    mutable std::string validated_bytes_;
+    mutable std::optional<Json> validated_state_;
 };
 }  // namespace brake_health::runtime

@@ -6,6 +6,16 @@ from pathlib import Path
 
 
 class SubscribeContractTests(unittest.TestCase):
+    def test_readiness_clock_is_sampled_after_ingest_lock(self):
+        root = Path(__file__).resolve().parents[1]
+        grpc = (root / "src/runtime/grpc_main.cpp").read_text()
+        product = (root / "src/runtime/product.cpp").read_text()
+        self.assertIn("runtime.advisory_readiness(wall_milliseconds);", grpc)
+        clocked = product.split("Product::advisory_readiness(const std::function", 1)[1].split("Product::observation_binding", 1)[0]
+        self.assertLess(clocked.index("lock(mutex_)"), clocked.index("const auto now = clock();"))
+        self.assertIn("now>=telemetry_at_", clocked)
+        self.assertIn("now-telemetry_at_<=5000", clocked)
+
     def test_subscription_failures_use_the_tested_observation_mapping(self):
         source = (Path(__file__).resolve().parents[1] / "src/runtime/grpc_main.cpp").read_text()
         self.assertIn("const auto observation = subscription_failure_observation(code);", source)
@@ -24,6 +34,11 @@ class SubscribeContractTests(unittest.TestCase):
         renewal = source.rsplit("catch (const ReauthenticationRequired&)", 1)[1].split("catch (const std::exception&", 1)[0]
         self.assertIn("continue;", renewal)
         self.assertNotIn("pause(", renewal)
+        self.assertIn("runtime.reauthenticate();", renewal)
+        self.assertNotIn("runtime.disconnect();", renewal)
+        telemetry=source.split("void subscribe(Product&",1)[1].split("void advisory_session(",1)[0]
+        finish=telemetry.split("const auto stream_status = reader->Finish();",1)[1]
+        self.assertLess(finish.index("throw ReauthenticationRequired{}"),finish.index("runtime.disconnect();"))
 
     def test_episode_outcomes_have_a_separate_repeatable_diagnostic_budget(self):
         source = (Path(__file__).resolve().parents[1] / "src/runtime/grpc_main.cpp").read_text()
@@ -39,7 +54,7 @@ class SubscribeContractTests(unittest.TestCase):
         self.assertIn("next_input_report_ = now + 10000", diagnostic)
         self.assertIn("missing_mask", diagnostic)
         self.assertNotIn(".value", diagnostic)
-        self.assertIn("if (!freshness_expired) log.state", source)
+        self.assertIn("if (runtime.expire_input(boot_milliseconds()))", source)
 
     def test_timing_diagnostic_does_not_log_every_jitter_transition(self):
         source = (Path(__file__).resolve().parents[1] / "src/runtime/grpc_main.cpp").read_text()

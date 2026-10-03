@@ -235,9 +235,7 @@ void subscribe(Product& runtime, const ApplicationInputs& inputs, std::atomic<bo
     std::shared_ptr<grpc::ClientContext> active;
     std::atomic<bool> invalid{false}, finished{false};
     SessionInterruption interruption;
-    std::atomic<std::int64_t> last_frame{boot_milliseconds()};
     std::thread watcher([&] {
-        bool freshness_expired = false;
         while (!finished) {
             if (stop || interrupted) interruption.observe(SessionInputChange::Unavailable);
             interruption.observe(inspect_session_inputs(inputs, token_file, token, metadata_bytes, ca));
@@ -247,22 +245,17 @@ void subscribe(Product& runtime, const ApplicationInputs& inputs, std::atomic<bo
                 std::lock_guard<std::mutex> lock(context_mutex);
                 if (active) active->TryCancel();
             }
-            const auto freshness = functional_profile(BHS_FUNCTIONAL_PROFILE) == FunctionalProfile::V1
-                ? brake_health::v1::kMaximumSourceAgeMs : brake_health::v2::kMaximumSourceAgeMs;
-            if (boot_milliseconds() - last_frame.load() > freshness) {
-                try {
-                    runtime.disconnect();
-                    runtime.input_observation("CONNECTED","STALE","SOURCE_GAP");
+            try {
+                if (runtime.expire_input(boot_milliseconds())) {
                     log.analytics(false, "KUKSA_DATA_UNAVAILABLE");
-                    if (!freshness_expired) log.state("TELEMETRY_WATCHDOG_EXPIRED", "NOT_READY", "NO_VALID_FRAME_WITHIN_FRESHNESS");
-                    freshness_expired = true;
-                } catch (...) {
-                    interruption.observe(SessionInputChange::Unavailable);
-                    invalid = true;
-                    std::lock_guard<std::mutex> lock(context_mutex);
-                    if (active) active->TryCancel();
+                    log.state("TELEMETRY_WATCHDOG_EXPIRED", "NOT_READY", "NO_VALID_FRAME_WITHIN_FRESHNESS");
                 }
-            } else freshness_expired = false;
+            } catch (...) {
+                interruption.observe(SessionInputChange::Unavailable);
+                invalid = true;
+                std::lock_guard<std::mutex> lock(context_mutex);
+                if (active) active->TryCancel();
+            }
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
         }
     });
@@ -323,7 +316,6 @@ void subscribe(Product& runtime, const ApplicationInputs& inputs, std::atomic<bo
             if (result.event_completed) log.state("WINDOW_COMPLETED", "INCOMPLETE_SOURCE_GAP", "NONE");
             continue;
         }
-        last_frame = now;
         log.analytics(true);
         if (result.event_started) log.state("WINDOW_TRIGGERED", "CAPTURING", "NONE");
         if (result.event_completed) log.state("WINDOW_COMPLETED", "COMPLETED", "NONE");
@@ -339,10 +331,10 @@ void subscribe(Product& runtime, const ApplicationInputs& inputs, std::atomic<bo
     }
     stream_context->TryCancel();
     const auto stream_status = reader->Finish();
-    runtime.disconnect();
     interruption.observe(inspect_session_inputs(inputs, token_file, token, metadata_bytes, ca));
     if ((stream_status.ok() || stream_status.error_code() == grpc::StatusCode::CANCELLED) &&
         interruption.token_replaced() && !stop && !interrupted) throw ReauthenticationRequired{};
+    runtime.disconnect();
     log.analytics(false, "KUKSA_DATA_UNAVAILABLE");
     log.state("KUKSA_SUBSCRIPTION_CHANGED", "NOT_READY", "KUKSA_DATA_UNAVAILABLE");
 }
@@ -476,7 +468,7 @@ void advisory_session(Product& runtime, const ApplicationInputs& inputs, std::at
                 }
             }
         }
-        const auto readiness_value = runtime.advisory_readiness(wall_milliseconds());
+        const auto readiness_value = runtime.advisory_readiness(wall_milliseconds);
         const bool ready = parse_json(readiness_value).at("ready").boolean();
         if(readiness.due(ready, boot_milliseconds())) {
             val::SetRequest set;val::SetResponse result;
@@ -537,8 +529,7 @@ int main(int argc, char** argv) {
         while (!interrupted) {
             try { subscribe(runtime, inputs, stop, log); }
             catch (const ReauthenticationRequired&) {
-                runtime.disconnect(); // An interrupted capture is never completed with invented samples.
-                runtime.input_observation("REAUTHENTICATING","WAITING","REAUTHENTICATING");
+                runtime.reauthenticate();
                 log.analytics(false, "KUKSA_REAUTHENTICATING");
                 log.state("KUKSA_SUBSCRIPTION_CHANGED", "REAUTHENTICATING", "TOKEN_REPLACED");
                 continue; // Recreate the stream immediately; authentication still runs normally.

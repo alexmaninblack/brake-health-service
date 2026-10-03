@@ -6,6 +6,7 @@
 #include "brake_health/runtime/derived_delivery.hpp"
 #include "brake_health/runtime/function_observation.hpp"
 #include <memory>
+#include <functional>
 
 namespace brake_health::runtime {
 enum class FunctionalProfile { V1, V2, V3 };
@@ -28,6 +29,8 @@ public:
     ProductObservation ingest(const std::vector<Signal>& values, std::int64_t wall, std::int64_t monotonic);
     void update_metadata(const v1::MessageMetadata& metadata);
     void disconnect();
+    void reauthenticate();
+    bool expire_input(std::int64_t observed_mono);
     void stop();
     bool analytics_ready() const;
     std::optional<ProductDelivery> next_message();
@@ -42,6 +45,7 @@ public:
     std::optional<std::string> demo_control_ack(std::int64_t now);
     void demo_control_accepted(const std::string&);
     std::string advisory_readiness(std::int64_t now) const;
+    std::string advisory_readiness(const std::function<std::int64_t()>& clock) const;
     FunctionalProfile profile() const { return profile_; }
     std::optional<Json> observation_binding() const;
     Json function_observation();
@@ -59,6 +63,7 @@ private:
     std::unique_ptr<AdvisoryRuntime> advisory_;
     std::int64_t previous_epoch_{-1};
     std::int64_t telemetry_at_{-1};
+    std::int64_t input_mono_{-1};
     bool ready_{};
     unsigned delivery_cursor_{};
     aosedge::FunctionFacts<ObservationCodec> function_;

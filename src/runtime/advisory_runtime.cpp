@@ -184,7 +184,15 @@ void verify_fact(const std::string& bytes, const std::string& id) {
         throw std::runtime_error("ADVISORY_FACT_INVALID");
 }
 }
-Json AdvisoryRuntime::load() const { return validate_state(read(state_root_ / "state.json", 65536), epoch_); }
+const Json& AdvisoryRuntime::load() const {
+    auto bytes = read(state_root_ / "state.json", 65536);
+    if (!validated_state_ || bytes != validated_bytes_) {
+        auto parsed = validate_state(bytes, epoch_);
+        validated_state_ = std::move(parsed);
+        validated_bytes_ = std::move(bytes);
+    }
+    return *validated_state_;
+}
 void AdvisoryRuntime::recover() {
     const auto path = state_root_ / "journal.json";
     if (!std::filesystem::exists(path)) return;
@@ -244,28 +252,30 @@ void AdvisoryRuntime::commit(const Json& before, const Json& after, const std::o
 std::optional<v3::AdvisoryRequest> AdvisoryRuntime::next_request(const v2::ModelState& model,
     const v1::MessageMetadata& metadata_value, std::int64_t now) {
     if (model.producer_epoch != epoch_) throw std::runtime_error("ADVISORY_EPOCH_CHANGED");
-    const auto before = load(); auto after = before;
-    auto& entries = requests(after);
+    const auto& before = load();
+    const auto& previous_entries = requests(before);
     const bool clear=before.object().count("demoReset")&&std::holds_alternative<std::nullptr_t>(before.at("demoReset").at("ack").value);
     if(clear&&(!before.at("demoReset").at("modelApplied").boolean()||
        now>=v3::timestamp_milliseconds(before.at("demoReset").at("command").at("expiresAt").string())))return {};
     if(!clear&&(model.condition_band != v2::ConditionBand::InspectionRecommended || !model.last_assessment_id))return {};
     std::string decision = clear?before.at("demoReset").at("command").at("commandId").string():*model.last_assessment_id;
-    if (!entries.empty()) {
-        const auto old = request(entries.back().at("request"));
+    if (!previous_entries.empty()) {
+        const auto old = request(previous_entries.back().at("request"));
         // Refresh the accepted active decision. A newer same-band assessment
         // does not invent another band transition or activation.
         if(!clear&&!old.clear)decision = old.decision_id;
         const auto elapsed = now - v3::timestamp_milliseconds(old.issued_at);
         if (elapsed < 0) return {};
         if (old.clear==clear&&old.decision_id==decision&&elapsed < (clear?5000:static_cast<std::int64_t>(v3::kRefreshMilliseconds))) {
-            if (!entries.back().at("written").boolean()) return old;
+            if (!previous_entries.back().at("written").boolean()) return old;
             return {};
         }
     }
     const auto sequence = before.at("nextSequence").integer();
     if (sequence == std::numeric_limits<std::int64_t>::max()) throw std::runtime_error("ADVISORY_SEQUENCE_EXHAUSTED");
     const auto r = (clear?v3::build_clear_request:v3::build_set_request)(epoch_, static_cast<std::uint64_t>(sequence), decision, utc_timestamp(now), metadata_value.service_version);
+    auto after = before;
+    auto& entries = requests(after);
     entries.push_back(Json{Json::Object{{"request", parse_json(r.canonical_json, 2048)},
         {"metadata", metadata_binding(metadata_value)}, {"written", Json{false}}, {"statuses", Json{Json::Object{}}}}});
     while (entries.size() > 16) entries.erase(entries.begin());
@@ -425,7 +435,7 @@ void AdvisoryRuntime::model_reset_applied() {
     object(object(after).at("demoReset"))["modelApplied"]=Json{true};commit(before,after);
 }
 bool AdvisoryRuntime::reset_pending() const {
-    const auto state=load();
+    const auto& state=load();
     return state.object().count("demoReset")&&std::holds_alternative<std::nullptr_t>(state.at("demoReset").at("ack").value);
 }
 std::optional<std::string> AdvisoryRuntime::reset_ack(std::int64_t now) {
