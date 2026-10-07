@@ -3,21 +3,21 @@
 
 # Brake Health Service
 
-## Current integration evidence — 24 September 2026
+## Current integration evidence — 7 October 2026
 
 Normal packages use real KUKSA telemetry and native Aos identity/permissions.
-The demo-v1.1 return point binds this source. Dated Factory39 receipts use
-**Brake92/V3, VDP117/V3 and Tire49/V1**; they cover retained model/storage identity
-during [ignition](../aosedge-sdv-demo/docs/qualification/factory-39-ignition-2026-09-24.md)
-and local operation/exact derived-message replay during
-[externalOFF/ON](../aosedge-sdv-demo/docs/qualification/factory-39-offline-2026-09-24.md).
-Earlier V1/V2/V3 and readiness receipts remain in the [baseline](../aosedge-sdv-demo/docs/qualification/current-baseline.md).
+The [Kit028 source return point](../aosedge-sdv-demo/docs/qualification/kit028-setup042-source-publication-2026-10-05.md)
+binds this implementation. The installed M1 run on Factory .41 exercised
+Brake112/113/114 (V1/V2/V3), independent Reset/history, offline backlog delivery
+and new products after same-identity ignition. Current source includes input
+and credential-renewal continuity corrections. These are dated scripted
+results, not current runtime observations or a completed native E2E verdict.
 
-This does not qualify a fresh all-version .39 cycle, full model calibration,
-nonempty-outbox power loss or every resource/fault case. Short readiness
-transitions remain an explicit issue; these are dated facts, not live status.
-Normal packages request `noFileLimit: 1024` and `pidsLimit: 24`; these are
-requested bounds, not measurements.
+The [current baseline](../aosedge-sdv-demo/docs/qualification/current-baseline.md)
+retains the remaining native, calibration, nonempty-outbox power-loss and fault
+gates. Load-sensitive brief readiness is deferred; no freshness threshold was
+relaxed. Normal packages request 250 DMIPS, 1024 open files and 24 PIDs.
+Requests are not measured usage or proof of all resource enforcement cases.
 
 ## Historical opt-in Test-only lifecycle mode
 

@@ -3,7 +3,7 @@
 
 # Brake executable integration boundary
 
-Current reading — demo-v1.1 / Factory39: this file retains dated source
+Current reading — Kit028 / Factory41: this file retains dated source
 increments. Their original “not deployed”/pending ARM64 statements describe
 those checkpoints, not today's product. Use [runtime profiles](runtime-profiles.md),
 [architecture](architecture.md) and the [current integration evidence](../README.md)
