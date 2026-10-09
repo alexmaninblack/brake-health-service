@@ -3,6 +3,26 @@
 
 # Brake Health Service
 
+Independent in-vehicle Brake Health QM service. It consumes authorized vehicle
+data, produces analytics/advisory and does not control braking.
+
+## SDV Lab entry
+
+For the complete demo, start at the
+[SDV Lab product repository](https://github.com/alexmaninblack/aosedge-sdv-demo).
+Operators use its prebuilt installer; developers use its pinned build route.
+This component is not a standalone installer for the whole lab. Integration
+source pins and published artifact provenance do not change when this README
+changes. Detailed historical evidence below retains its original scope.
+
+[Component architecture](docs/architecture.md), [runtime profiles](docs/runtime-profiles.md)
+and [product build](docs/product-build.md).
+
+Local checks: `python3 -B tools/quality_gate.py` and the Python test command
+below. Tests can compile C++ into temporary directories; select SSD scratch.
+Use product-build instructions for real ARM64 output, not the historical scaffold.
+
+
 ## Current integration evidence — 7 October 2026
 
 Normal packages use real KUKSA telemetry and native Aos identity/permissions.
