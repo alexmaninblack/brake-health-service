@@ -1,290 +1,115 @@
 <!-- SPDX-FileCopyrightText: 2026 maninblack -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-# Brake executable integration boundary
+# Brake executable and deployment boundary
 
-Current reading — Kit028 / Factory41: this file retains dated source
-increments. Their original “not deployed”/pending ARM64 statements describe
-those checkpoints, not today's product. Use [runtime profiles](runtime-profiles.md),
-[architecture](architecture.md) and the [current integration evidence](../README.md)
-for implemented behavior and scoped deployment proof. No historical source
-test is retroactively promoted to live acceptance.
+The product is the real Linux ARM64 credential bootstrap and KUKSA analytics
+executable. Immutable [runtime profiles](runtime-profiles.md) select V1 capture,
+V2 condition analysis or V3 advisory independently of the allocated release
+number. A host build or diagnostic scaffold is not a deployable substitute.
 
-## 18 September: approved V1 cadence and observation increment
+Use the [product build contract](product-build.md) for exact toolchain,
+dependency, output and export requirements. The integration
+[current baseline](https://github.com/alexmaninblack/aosedge-sdv-demo/blob/main/docs/qualification/current-baseline.md)
+owns candidate-specific deployment results and remaining gates; earlier
+source-increment diaries are not current installation instructions.
 
-The current V1 acquisition uses the first complete valid sample in each
-100-ms source-time bucket, matching the accepted retained 10-Hz rate at both
-20-Hz and 30-Hz ingress. Empty buckets stay empty; source times, trigger/clear
-holds, window/spool bounds and old messages are unchanged. This supersedes
-the earlier every-third-frame assumption, not the original logical payload.
-See the Solution's Brake Telemetry Window cadence amendment.
+## Process, identity and credentials
 
-The new bounded function-observation v3 source runs in the existing delivery
-worker and keeps its own 64-record allocation under the existing service
-storage. Input, activity, delivery and advisory are independent; observations
-are not assessments or native advisory validity. Source tests/builds are
-recorded in the Solution's 18 September consumer/producer evidence. Live
-publication and qualification of this increment remain open.
-
-## 16 September: approved V2/V3 timing amendment
-
-V2/V3 allow at most 5000 ms source age/stream idle/input gap, independently of
-at most 100 ms skew across the twelve required signal timestamps (one retained
-10-Hz period). The sample uses the latest actual timestamp and records age of
-the oldest value. No values/timestamps are rewritten or interpolated. Fixed
-timing diagnostic buckets expose the observed spread without telemetry values.
-The model profile digest changes; wear mathematics, Safe Stop and advisory
-leases do not. The explicitly supported previous profile remains readable:
-state retains its original digest until the next accepted atomic model update;
-wear, generation, producer epoch, sequence and duplicate ledger are retained.
-Historical outbox bytes keep their original profile/provenance and checksums.
-Unknown profiles fail closed. Local tests are not live qualification.
-
-## 15 September: authorized local-demo V1 freshness increment
-
-The operator approved a five-second V1 source-age and stream-idle budget for
-the single-Mac demo. Ingress, the V1 domain validator, Solution raw-window
-schemas and the backend validator use the same 5000-ms upper bound. Missing,
-future, mixed-timestamp, duplicate, reordered and physically invalid input
-remains rejected. No source value or timestamp is synthesized. Capture holds,
-window durations, signed-token lifetime and V2/V3 model/advisory timing are not
-changed by this V1 increment. Fixed `KUKSA_INPUT_REJECTED` reason codes identify
-the remaining input boundary without recording signal values or credentials.
-This source change is not a live-qualification claim.
-
-Status: bootstrap and host/domain contracts compiled and tested. The integration
-owner reported a successful real Linux ARM64/gRPC v1 build at
-`81e6afc1563239c8d75fb7183a50546cde7ddc58`. Later source changes still need
-their product build. **No installed Service or deployable qualification is
-claimed.** The current profile composition is documented in
-[runtime profiles](runtime-profiles.md).
-The unchanged diagnostic scaffold must not be used for a Brake product upload.
-
-## Process and transport boundary
-
-The private-session increment implements
-[ADR 0015](../../aosedge-sdv-demo/docs/architecture/decisions/0015-use-native-aos-service-runtime-inputs.md)
-without an SM token-owner patch. The native-input producer increment now passes
-host tests and offline producer/backend conformance. Publication remains gated
-on Demo Control package assembly/public projection, boot ordering and a real
-ARM64/gRPC build; no live execution is claimed.
-
-- `/usr/bin/brake-health-bootstrap` is the intended Aos command. It consumes
-  `AOS_SECRET`, removes that variable before exec of the analytics child, and
-  uses only the accepted fixed KAC Unix socket. The child has no instance
-  secret. KAC secrets and responses are never printed.
-- KAC owns token issuance; bootstrap creates a fresh private 0700 session under
-  the existing per-container 1777 tmpfs and owns renewal/atomic 0400 delivery
-  to `/run/aosedge/secrets/kuksa/session-<random>/token.jwt`.
-  KUKSA_TOKEN_FILE carries only that path. Wrong ownership/modes, symlinks
-  and hard-linked tokens are rejected. Normal exit removes only the owned
-  session; restart never adopts an old token. Eight session entries bounds
-  crash orphans; exhaustion fails without deleting another session.
-  Container destruction clears the private tmpfs.
-- An independent bootstrap loop removes the token at signed expiry even when
-  an eight-second renewal request is outstanding. BOOTTIME bounds prevent a
-  backward wall-clock jump extending a lease. A terminal rejection removes
-  the token and leaves analytics waiting, without a process-restart loop.
-- `/usr/bin/brake-health-service` performs TLS-verified `kuksa.val.v1.Get`
-  metadata inspection and `Subscribe` on the six Brake v1 input paths or the
-  twelve accepted v2/v3 model paths selected explicitly at build time.
-  The endpoint is `Server:55555`, supplied by the existing `kuksa` resource's
-  host mapping. There is no insecure channel or provider-credential fallback.
-- KUKSA 0.5.0 authenticates the metadata header `authorization: Bearer <JWT>`;
-  this was verified in upstream `databroker/src/grpc/server.rs:61`, not inferred
-  from examples. Metadata must report sensor entries with the accepted
-  float/uint8 types and `km/h`, `m/s^2`, or `percent` units.
-- The subscription watcher cancels blocked RPCs on token removal/replacement,
-  metadata change, trust-input change or shutdown. Freshness loss closes an
-  active window rather than manufacturing source values. Renewed credentials
-  result in a new Get and Subscribe.
-- An independent delivery thread sends durable v1 messages to the fixed
-  isolated Brake endpoint. Backend unavailability does not gate acquisition;
-  retry preserves bytes, valid matching durable ACK permits deletion, and
-  permanent conflict quarantines retained evidence.
-  The same sender drains v2/v3 canonical products. Its source-defined endpoint
-  is `http://10.0.0.1:18091/api/v1/brake/messages`, exactly D4-020's isolated
-  local-demo endpoint; no endpoint flag/environment override or backend bearer
-  credential is introduced. The package still needs the supported least-scope
-  outbound connection policy proven on the pinned native runtime.
-
-## Growing-window delivery
-
-D4-016.1/.2 capture, content hashes and D4-017 receipt semantics are unchanged.
-New product envelopes use native provenance revision 2; legacy envelopes remain
-readable for retained queues. The runtime seals
-the PRE prefix separately from ACTIVE/POST: PRE chunks (including a short
-last PRE chunk) become eligible as soon as the trigger checkpoint is durable.
-Later complete ten-sample ACTIVE/POST chunks are eligible during capture;
-their trailing partial chunk waits until full or terminal. The local
-`ABORTED_RESTART` checkpoint is never sent while capture remains active.
-
-This partition needs at most `ceil(PRE / 10) + ceil((ACTIVE + POST) / 10)`
-chunks: the accepted bounds of 30 PRE and 120 ACTIVE/POST samples retain the
-existing maximum of 15. It does not require warming a full PRE ring before
-the first trigger. The completed-message serializer and its golden vectors
-remain unchanged; the runtime uses the additional growing-message serializer.
-The backend's existing cumulative `firstSampleIndex` validation accepts these
-boundaries; the provenance revision does not change these partition/content rules.
-
-An ACK during capture never deletes the event. Sealed bytes cannot change
-while in flight, terminal publication preserves acknowledged chunks, and the
-single terminal completion commits to the exact transmitted digest sequence.
-Recovery preserves chunk ACKs and closes intact captures as `ABORTED_RESTART`.
-A torn multi-file checkpoint is quarantined when individually valid chunk
-files and completion disagree. HTTP conflict similarly freezes retained
-bytes without crashing subsequent acquisition/stop. A capacity-rejected event
-cannot be partly re-admitted merely because an older event drains later.
-
-These are host-tested producer/queue behaviors, not evidence of a running
-backend, ARM64 deployment, gRPC data acquisition or observed dashboard growth.
-
-No service-managed cgroups, resource claims, VM manipulation, Cloud calls,
-simulator reads, raw telemetry logging or separate log archive are introduced.
-
-## Explicit application inputs, not a new platform interface
-
-Both executables require exactly these options, with absolute file paths:
+The Aos entrypoint is `/usr/bin/brake-health-bootstrap`, with absolute inputs:
 
 ```text
---metadata-file <authoritatively supplied service metadata JSON>
---ca-file <authoritatively supplied public KUKSA TLS trust PEM>
+--metadata-file /run/aosedge/platform/service-inputs/metadata.json
+--ca-file /run/aosedge/platform/service-inputs/kuksa-ca.pem
 ```
 
-This is an approved **Service-owned application configuration boundary**.
-It does not establish a guest mount, a metadata producer, a default UID, or a
-deployment mechanism. Missing/invalid inputs fail closed; no identity is
-derived from a version label, Subject label, hostname, or current operator.
+Demo Control and the platform supply authoritative public metadata and public
+KUKSA trust through the accepted read-only resources. This service does not
+invent Unit identity, generate trust, access a Provider private key or grant
+itself resources.
 
-The public metadata object has exactly five fields: `schemaVersion: 2`,
-`unitSystemUid`, `unitRole` (`validation` or `production`),
-`vdpContractVersion` and `vdpContractSha256`.
+Bootstrap consumes native `AOS_SECRET`, exchanges it at the fixed KAC Unix
+socket and removes it before executing `/usr/bin/brake-health-service`.
+Only bootstrap sees that instance secret. KAC issues IAM-derived short-lived
+credentials; the analytics child receives its private token path.
 
-Both entry points read immutable `/usr/share/aosedge/service-release.json`
-(`schemaVersion: 1`, `serviceVersion`) and the native
-`AOS_ITEM_ID`, `AOS_SUBJECT_ID`, `AOS_INSTANCE_INDEX` and
-`AOS_INSTANCE_ID` once at startup. The analytics process freezes these values
-while refreshing public metadata. Package/public JSON cannot override native
-identity. Versions are strict `X.Y.Z`, max 32 characters; identifiers are
-bounded ASCII; the index is a nonnegative JSON-safe integer. No second release
-option or OCI-digest fallback exists.
+Each bootstrap creates a fresh owner-only session beneath the per-container
+tmpfs. The token is delivered atomically with mode 0400; unsafe ownership,
+symlinks/hardlinks and excessive orphan sessions fail closed. Normal exit
+removes only its own session; container destruction clears the tmpfs.
+An independent expiry loop removes the token at signed expiry, including
+during an outstanding renewal. BOOTTIME prevents a backward wall clock from
+extending a lease. Terminal rejection waits for valid authority without a
+process-restart storm. No Provider-token or insecure-channel fallback exists.
 
-All five Brake product message kinds use `schemaVersion: 2`,
-`contractVersion: "2.0.0"` and a closed `serviceInstance` object.
-Neither `serviceArtifactSha256` nor `modelArtifactSha256` is emitted.
-Model configuration and VDP compatibility hashes retain their meanings.
-QM advisory requests/GatewayStatus, content hashes, keys and ACKs do not change.
+## Acquisition and freshness
 
-The explicit legacy decoder is used only for historical private request
-bindings/golden fixtures. A legacy seven-field file cannot start a new process.
-Queued bytes, old binding identities, epochs, sequences and original receipts
-are retained. Window recovery checks wire revision and complete provenance;
-a committed VDP change closes capture under its original metadata.
+The child uses TLS-verified `kuksa.val.v1.Get` metadata and `Subscribe` at
+`Server:55555`, mapped by the platform's `kuksa` resource. Authorization is
+the Bearer JWT metadata header. Subscriptions explicitly select `FIELD_VALUE`;
+a Get view is not assumed to select subscription fields.
 
-## Precise live binding gate
+V1 consumes six base signals; V2/V3 consume twelve model signals. KUKSA
+metadata must match their types and units. V1 retains the first complete valid
+frame per 100-ms source-time bucket. V1/V2/V3 use the accepted 5000-ms
+source-age/idle bounds; V2/V3 additionally bound cross-signal skew to 100 ms.
+Missing, future, mixed, duplicate, reordered or physically invalid data is
+rejected, not filled with zero or a refreshed receipt timestamp.
 
-The examined Factory `.31` uses platform commit
-`0bed8b3769b09fbe685ed599ca8d10e6594fbe53` and immutable image SHA-256
-`a9019f4adfe70499bde339c8e9d95eb8568736b73dc218f6c0e390fbcd28ddf4`.
+The input watcher is separate from longer processing and backend delivery.
+Credential replacement/removal cancels blocked RPCs; renewal creates a fresh
+authenticated Get/Subscribe without fabricating data or resetting model state.
+VDP compatibility, local input readiness, backend delivery and advisory
+application are independent observations.
 
-| Available source/mechanism | What it proves / what it does not provide |
-| --- | --- |
-| Native IAM `GetSystemInfo.system_id` and official SDK `system_uid` | Authoritative Unit system identity exists; it is not one of the standard Service environment fields |
-| Standard SM environment `AOS_ITEM_ID`, `AOS_SUBJECT_ID`, `AOS_INSTANCE_INDEX`, `AOS_INSTANCE_ID`, `AOS_SECRET` | Identifies the service instance and its IAM authorization secret; does not supply the package release or public Unit/VDP inputs |
-| Existing Aos package environment overrides | A supported carrier, not by itself an authoritative source or agreed change lifecycle; baking the current UID into reusable packages is not acceptable |
-| `.31` named resource `kuksa` | Adds host `Server` -> `10.0.0.100`; no filesystem trust input |
-| `.31` named resource `kuksa-auth-client` | Supplies KAC socket and per-instance token tmpfs; does not expose the KUKSA public TLS certificate |
-| `/var/lib/aos-kuksa-tls/server.pem` | Per-vehicle public, self-signed KUKSA TLS leaf; generated SAN is `IP:127.0.0.1,DNS:Server` (`tls_prepare.cpp:173`) |
-| Provider systemd `LoadCredential=kuksa-ca:.../server.pem` | Demonstrates a working public-trust source for the platform Provider, not an existing Service-visible mount |
+## Public inputs and provenance
 
-If no already-supported service-visible carrier closes these inputs, the
-smallest proposed integration delta to review is **read-only public leaf
-delivery plus read-only authoritative metadata delivery/change ownership**.
-Only the public leaf is needed, never its sibling private key or Provider JWT.
-The minimal read-only metadata/public-trust interface and a transient Test
-proof without rebuilding `.31` are now authorized. This Service repository
-does not implement the guest resource; the integration owner implements and
-verifies the exact binding.
-Native API availability does not justify giving a Service new IAM/network
-access; the exact supported delivery mechanism still needs to be agreed and
-tested. A Factory rebuild is not assumed necessary or authorized by this work.
+Public metadata has exactly five fields: `schemaVersion: 2`,
+`unitSystemUid`, `unitRole`, `vdpContractVersion` and `vdpContractSha256`.
+The immutable package file `/usr/share/aosedge/service-release.json` owns
+`serviceVersion`. Native Aos environment owns `AOS_ITEM_ID`,
+`AOS_SUBJECT_ID`, `AOS_INSTANCE_INDEX` and `AOS_INSTANCE_ID`.
+Public JSON cannot override that instance identity.
 
-## Exact build inputs for Demo Control
+All five product message kinds use wire schema 2 / contract 2.0.0 and closed
+`serviceInstance` provenance. Neither service nor model OCI digest is emitted.
+Functional profile, package release, model configuration digest and VDP
+contract digest have separate meanings. Legacy queued bytes retain their
+original schema, identity, checksums and receipts; legacy decoders do not
+authorize a seven-field public file to start a new process.
 
-Product preparation must invoke the following through the Demo Control build
-implementation, inside the selected Linux ARM64 toolchain environment:
+## Durable processing and delivery
 
-```text
-cmake -S <service-source> -B <owned-build-dir>
-  -DBHS_BUILD_KUKSA_RUNTIME=ON -DBUILD_TESTING=ON
-  -DBHS_KUKSA_SOURCE_ROOT=<pinned-kuksa-checkout>
-  -DCMAKE_PREFIX_PATH=<pinned-grpc-protobuf-install-prefix>
-  -DCMAKE_INSTALL_PREFIX=/usr
-cmake --build <owned-build-dir>
-ctest --test-dir <owned-build-dir> --output-on-failure
-DESTDIR=<owned-rootfs> cmake --install <owned-build-dir>
-```
+V1 seals the PRE prefix independently from growing ACTIVE/POST chunks.
+Only durably sealed chunks are eligible for delivery; partial trailing data
+waits for completion. ACK during capture does not delete the event. Restart
+preserves acknowledgements and closes intact interrupted capture with its
+original provenance. Conflicting/torn content is quarantined, not silently
+rewritten or admitted again after capacity changes.
 
-These are build-tool inputs, not new operator workflow wrappers. CMake does
-not download dependencies. The product option fails configuration if required
-dependencies are absent; its default OFF is explicitly labelled host/domain
-only and must never be used to assert product success.
+V2/V3 retain the crash-safe model journal, identity ledger and bounded outbox.
+V3 adds its own persisted request/sequence/correlation state and only the
+accepted Brake advisory write. The Gateway's correlated status, not KUKSA Set
+success or a backend ACK, establishes advisory application.
+[Reset Driver Advisory](advisory-demo-control.md) is a separate bounded
+command/application protocol; it preserves history and delivery records.
 
-The subsequent [product Docker recipe and export contract](product-build.md)
-provides the pinned Linux ARM64 build path for Demo Control. Docker was not
-executed by the source implementation lane; the first real build and
-transient-Test qualification remain owned by integration.
+An independent sender posts to the fixed isolated demo endpoint
+`http://10.0.0.1:18091/api/v1/brake/messages`. Retry preserves exact bytes;
+only matching durable acknowledgement permits deletion. Permanent conflict
+retains/quarantines evidence without stopping later local analysis.
+Backend loss does not gate acquisition or create vehicle-motion authority.
 
-Pinned inputs match the recorded Factory C++ versions:
+## Build, installation and acceptance
 
-| Input | Exact revision |
-| --- | --- |
-| gRPC / `grpc_cpp_plugin` 1.60.1 | `e5ae3b6b44bf3b64d24bfb4b4f82556239b986db` |
-| Protobuf / `protoc` 4.25.8 (CMake package 25.8.0) | `a4cbdd3ed0042e8f9b9c30e8b0634096d9532809` |
-| Abseil 20240116.3 | `54fac219c4ef0bc379dfffb0b8098725d77ac81b` |
-| KUKSA databroker 0.5.0 VAL schemas | `30e5c13abc496d0b39aaa6c25acebb088b9902e3` |
+Demo Control resolves committed sources and runs the pinned Linux ARM64
+[build/export recipe](product-build.md), including its mandatory tests and
+ELF/dependency/license checks. The exported executables are assembled with
+the accepted permissions, named resources and immutable release metadata
+before signing/publication. Build output alone is unsigned and not live-qualified.
 
-KUKSA schema contents are also SHA-256 checked in CMake. External generated
-headers are produced in the build directory and are not committed. Every
-candidate must retain its own ARM64 ELF, link closure, license and actual gRPC
-build evidence; a prior commit's successful build does not qualify later
-source. Guest libc/loader compatibility remains a deployment gate, not implied
-by this input list. Do not substitute incompatible
-distribution gRPC libraries merely because their package names match.
-
-## Verification scope and remaining product work
-
-Six host CTest targets pass: native inputs, private token sessions, v1/v2
-domains, runtime delivery and composed application/recovery tests.
-`brake-health-bootstrap` compiles with warnings-as-errors.
-`tests/native_backend_conformance.mjs <application-test-binary> <backend-checkout>`
-validates actual C++ output from all five kinds against the matching compiled
-backend and an in-memory database, including retries and window correlation. Tests use isolated
-fixtures only; no runtime fixture records are installed or sent to a live
-backend. There is no claim of bootstrap/child/KAC socket E2E or TLS gRPC fixture
-E2E yet; real build and live execution remain owned by Demo Control.
-
-Before SOTA: close the live binding above, compile/run the actual adapter,
-qualify renewal/rejection/reconnect with an isolated KAC+TLS fixture, assemble
-real ARM64 executables and library/license closure through Demo Control, then
-set the accepted package permissions/resources, `minInstances: 1` and
-`offlineTTL: P7D`. Current quota requests remain unqualified, especially gRPC
-thread and memory use. Growing-window publication is implemented and locally
-tested; real KUKSA-to-backend/dashboards verification is still outstanding.
-Capacity/quarantine readiness and aggregated operational-fact reporting need
-separate executable qualification; local retention tests do not establish
-those operator-visible states. v2/v3 runtime and advisory composition are now
-implemented in the [current product profiles](runtime-profiles.md). The
-[earlier wiring audit](runtime-v2-v3-audit.md) is historical gap evidence, not
-a description of the current source.
-# Native subscription correction — 15 September 2026
-
-The real Brake42 trial authenticated and passed metadata validation but emitted
-`KUKSA_INPUT_REJECTED: MISSING_VALUE`. The pinned KUKSA 0.5.0
-[`Subscribe` implementation](https://github.com/eclipse-kuksa/kuksa-databroker/blob/30e5c13abc496d0b39aaa6c25acebb088b9902e3/databroker/src/grpc/kuksa_val_v1/val.rs)
-builds subscriptions from `entry.fields`; unlike `Get`, it does not expand
-`entry.view`. Telemetry subscription now requests `FIELD_VALUE` explicitly
-for the same exact paths. No authorization scope, sampling quality rule or
-synthetic fallback changes. The source guard verifies request construction;
-the ARM64 compile and native trial provide separate evidence. Advisory's
-separate subscription is outside this V1 trial and must be checked before V3.
+The selected integrated runtime has scoped real KUKSA, products, advisory,
+update, reset, ignition and offline evidence. Full model/stimulus calibration,
+quota stress, all security/transport negatives and nonempty-outbox power loss
+remain separate obligations. Do not replay an old not-deployed status as a
+current blocker, or use a sampled pass to close those broader obligations.

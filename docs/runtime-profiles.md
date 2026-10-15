@@ -95,8 +95,8 @@ does not stop local model/advisory progress or later fabricate a skipped fact.
 Only Demo Control performs artifact operations. Its existing Docker build
 receives `--build-arg BHS_FUNCTIONAL_PROFILE=v1` (or `v2`/`v3`) in addition to
 `SOURCE_REVISION` and `SOURCE_DATE_EPOCH`. The pinned `export` target still
-builds the real KUKSA executable with `BHS_BUILD_KUKSA_RUNTIME=ON`, runs all four
-CTest suites, and exports the two Linux ARM64 executables and dependency
+builds the real KUKSA executable with `BHS_BUILD_KUKSA_RUNTIME=ON`, runs the
+exporter's mandatory CTest suites, and exports the two Linux ARM64 executables and dependency
 closure. `product-build.json` adds `functionalProfile`; all existing paths and
 fields remain intact. A controller catalog must distinguish source revision
 and profile rather than overwrite one with another.
@@ -112,8 +112,8 @@ tests cover journal-only, state-written and fact-written crash frontiers;
 reopening and ACK do not resurrect delivered facts. Corrupt hashes, unknown
 state schemas and conflicting records fail closed without replacing prior
 state. Capture tests cover immediate missing/nonfinite input rejection,
-POST-to-ACTIVE continuation and maximum-duration suppression. There are thirteen
-application groups plus the three existing domain/runtime CTest suites.
+POST-to-ACTIVE continuation and maximum-duration suppression. The current
+exporter and test sources own the exact suite inventory.
 
 Readiness logging uses the accepted combined modes, independently tracking
 analytics, backend acknowledgement and v3 internal advisory capability.
@@ -128,18 +128,9 @@ the runtime lock, preventing a delayed expiry decision from discarding newer
 input. Advisory readiness samples wall time after acquiring that same lock;
 future timestamps and the unchanged freshness limit still fail closed.
 
-The 3 October 2026 retained-M1 transient proof completed three Brake products
-and a 420.509-second observation with no telemetry-expiry or advisory-readiness
-failure, unchanged native 250-DMIPS enforcement and no platform restarts.
-Token replacement remained observable as REAUTHENTICATING, not falsely reported
-as fresh Gateway confirmation. Canonical packaging, native SOTA and complete
-Factory/installed-kit regression remain separate qualification gates.
-
-This is a source/host-tested checkpoint, not a successful deployment claim.
-The integration owner reported a successful real Linux ARM64/gRPC v1 build of
-`81e6afc1563239c8d75fb7183a50546cde7ddc58`; this later recovery/readiness
-increment still requires a warm product build. Real KAC/Service-identity mount ownership,
-actual backend transport, Gateway lease/application proof, requested RAM/CPU/
-thread envelope, and clean restart/security evidence remain live gates owned
-by Demo Control. No Docker, signing, publication,
-VM or Cloud action was performed in the isolated source lane.
+Token replacement is observable as REAUTHENTICATING, not fresh Gateway
+confirmation. The [integration baseline](https://github.com/alexmaninblack/aosedge-sdv-demo/blob/main/docs/qualification/current-baseline.md)
+binds the selected runtime's scoped real-input, product, advisory, serial SOTA,
+reset, ignition and offline results. Source tests or an older transient proof
+do not qualify different bytes. Formal model calibration, complete quota/
+security/fault matrices and nonempty-queue power loss remain separate.

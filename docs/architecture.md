@@ -80,18 +80,16 @@ incompatible installed VDP. Presenter maps the exact Cloud-installed profile.
 [Reset Driver Advisory](advisory-demo-control.md) resets only the selected
 model/advisory state through a command/application acknowledgement, preserving
 history, queues and ordinary identity/sequence continuity. Stop/crash is not
-a Reset. See the [integration matrix](../../aosedge-sdv-demo/docs/architecture/current-implementation.md)
-for scoped .39 ignition/offline proof and remaining calibration/fault gates.
-
-The original [runtime increment](runtime-increment.md) is historical source
-evidence. Its original packaging/ARM64 gaps are not current product status.
+a Reset. See the [integration matrix](https://github.com/alexmaninblack/aosedge-sdv-demo/blob/main/docs/architecture/current-implementation.md)
+for current image/media-bound proof and remaining calibration/fault gates.
 The diagnostic scaffold is never a product fallback.
 
 ## Configuration Ownership
 
 - The service repository owns its compatibility range, resource request,
   quotas, command, environment, and package version.
-- The platform owns the unmodified Eclipse KUKSA Databroker, Vehicle Data
+- The platform owns Eclipse KUKSA Databroker with the reviewed scope-path and
+  VAL v1 source-timestamp compatibility patches, Vehicle Data
   Provider, removable fixed-resource KAC helper, Aos IAM permission state and
   KUKSA trust configuration. KAC is not part of this repository or VDP.
 - The Service-owned bootstrap presents only its per-instance

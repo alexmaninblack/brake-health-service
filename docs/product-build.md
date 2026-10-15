@@ -7,8 +7,8 @@ The root `Dockerfile` is a **preparation-only build recipe**, not a runtime
 container. All actual builds/exports are invoked by Demo Control. It builds
 the real `brake-health-bootstrap` and `brake-health-service` with
 `BHS_BUILD_KUKSA_RUNTIME=ON`; the diagnostic scaffold is never substituted.
-No VM, Cloud, Builder, Docker pull/build/start, signing or upload was performed
-while preparing this source increment.
+The recipe is not an operator installation step and never performs signing,
+assignment or Cloud publication.
 
 ## Canonical invocation owned by Demo Control
 
