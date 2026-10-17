@@ -13,7 +13,10 @@ declares a vehicle telemetry contract range and KUKSA API name.
 - Major releases may require a new contract range, permissions, state format,
   or operator migration.
 
-The R-3 `0.1.0` package is a diagnostic scaffold, not a production release.
+Functional V1/V2/V3 profiles are selected at compilation, independently of the
+allocated package release. The [runtime profiles](runtime-profiles.md) own that
+composition; Demo Control allocates monotonically increasing Cloud releases.
+The retained diagnostic scaffold is not a deployable product or release input.
 
 ## Resource Ownership
 
@@ -27,7 +30,10 @@ resource, layer, device, port, or write permission.
 Every accepted service version must remain independently installable. A new
 version may not make irreversible external or local state changes before a
 rollback path is qualified. State schema changes require explicit forward and
-backward compatibility rules. The diagnostic scaffold has no persistent state.
+backward compatibility rules. The real service owns persistent model,
+advisory, identity-ledger and outbox state; do not infer stateless rollback from
+the diagnostic scaffold. A policy requirement is not proof that every downgrade
+or failure frontier has been qualified.
 
 ## Product Language
 

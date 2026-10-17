@@ -20,17 +20,20 @@ no simulation endpoint, vehicle-bus adapter, platform configuration, VM
 launcher, provisioning code, or dependency on platform repository source.
 
 Brake Health is one independently deployable product with immutable v1, v2
-and v3 release compositions. Its dependency-free C++17 domain layer now has
-two source-complete foundations:
+and v3 release compositions. Its dependency-free C++17 domain layer separates
+capture, condition analysis and advisory:
 
 - v1 owns complete-frame validation, source-time 100-ms bucket retention
-  (18 September cadence amendment; first actual valid sample, no interpolation),
+  (first actual valid sample, no interpolation),
   PRE/ACTIVE/POST capture, closed canonical chunk/completion serialization and
   a bounded POSIX spool; and
 - v2 accepts an adapter-completed fixed-point episode, runs only
   `brake-condition-demo-v1`, emits the closed assessment and optional
   band-change event, and owns crash-safe model state plus a bounded derived
-  outbox.
+  outbox; and
+- v3 reuses the v2 model and adds persisted typed advisory requests, leases
+  and Gateway-correlated outcomes. Backend delivery remains independent of
+  local processing and advisory application.
 
 The v2 transaction order is immutable journal, atomic state replacement,
 atomic assessment/event bundle publication and commit marker. Recovery accepts
@@ -58,10 +61,12 @@ is used only for deterministic identifiers, never as authentication, signing
 or integrity protection. The accepted v1 spool remains separate and byte-
 unchanged while v2 initializes and evaluates.
 
-The R-3 scaffold requests read-only access to the KUKSA resource and no Aos
-layers. A future implementation must declare every new runtime library as an
-Aos layer or bundle it with complete license notices. It must not widen the
-resource mode without a reviewed use case.
+Each runtime profile declares its exact KUKSA paths and operations; only V3
+adds the accepted Brake advisory writes. KAC derives authority from the active
+native IAM permissions, not the old read-only scaffold configuration.
+The [product build](product-build.md) owns the current bundled dependency and
+license closure. New layers, libraries or permissions require explicit review;
+they are not inherited from another profile or inferred from a host build.
 
 ## Current Behavior
 

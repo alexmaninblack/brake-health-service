@@ -9,4 +9,9 @@ Functional V3 emits the fixed Brake `Advisory.Readiness` actuator from actual te
 
 The service stops refreshing the old warning and writes typed CLEAR with the reset UUID as decision ID. Only a correlated Gateway CLEARED result produces a successful acknowledgement at `/api/v1/brake/demo-control/ack`. Duplicate/restart recovery cannot reset twice; a release/instance change rejects the pending command. Ordinary stop/crash does not synthesize CLEAR.
 
-Source tests cover duplicate/restart, staged-write interruptions, retained history/sequence, failure/expiry and fresh/stale readiness. Live staging and clean Factory qualification are separate gates; local tests do not establish them.
+Source tests cover duplicate/restart, staged-write interruptions, retained
+history/sequence, failure/expiry and fresh/stale readiness. The integration
+[current baseline](https://github.com/alexmaninblack/aosedge-sdv-demo/blob/main/docs/qualification/current-baseline.md)
+binds real independent Reset/history and advisory results to the selected
+runtime. Local tests do not qualify another candidate or close every negative
+and interruption case.
